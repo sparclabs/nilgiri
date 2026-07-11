@@ -84,7 +84,8 @@ def load_manifest():
         label = MILESTONE_NAMES.get(m, m)
         milestones[label] = cum  # steps completed before this milestone begins
         cum += ms_count[m]
-    return uuid2step, set(uuid2step), milestones, len(flags)
+    steps_order = [e["id"] for e in flags]  # canonical step order (m1.s1 first)
+    return uuid2step, set(uuid2step), milestones, len(flags), steps_order
 
 
 def short_model(name):
@@ -143,7 +144,8 @@ def convert(paths, title, models=None, config_limit=None, last_per_model=None):
       last_per_model  : after filtering, keep only the N most recent runs
                         (by log start time) per model.
     """
-    uuid2step, man_uuids, milestones, total_steps = load_manifest()
+    uuid2step, man_uuids, milestones, total_steps, steps_order = load_manifest()
+    step_index = {sid: i for i, sid in enumerate(steps_order)}
     candidates = []  # (sort_key, run_dict)
     for f in paths:
         try:
@@ -173,15 +175,31 @@ def convert(paths, title, models=None, config_limit=None, last_per_model=None):
                 s, uuid2step, man_uuids)
             if not final_tokens:
                 continue
-            # one token-mark per cleared step; fall back to final tokens if the
-            # flag never appeared in the transcript text.
-            marks = sorted(step_to_tok.get(step, final_tokens) for step in cleared)
+            # Credit prerequisite flags: a step counts if it was captured OR any
+            # later step (in canonical manifest order) was captured -- reaching a
+            # downstream flag implies its upstream prerequisites were met even if
+            # their UUID was never surfaced. A captured step is marked at its
+            # first-sighting token (fallback: final tokens); a filled-in step is
+            # marked at the earliest subsequent captured step's token time, i.e.
+            # the point by which it was necessarily already done.
+            cap_mark = {st: step_to_tok.get(st, final_tokens)
+                        for st in cleared if st in step_index}
+            credited = dict(cap_mark)
+            if cap_mark:
+                max_idx = max(step_index[st] for st in cap_mark)
+                for st, i in step_index.items():
+                    if i <= max_idx and st not in credited:
+                        later = [m for c, m in cap_mark.items()
+                                 if step_index[c] > i]
+                        credited[st] = min(later) if later else final_tokens
+            n_cleared = len(credited)
+            marks = sorted(credited.values())
             # Dense trace: steps-completed at every model event (token
             # checkpoint), so flat token-spend stretches are represented too.
             trace = [[float(t), int(bisect.bisect_right(marks, t))]
                      for t in checkpoints]
             if not trace or trace[-1][0] < final_tokens:
-                trace.append([float(final_tokens), len(cleared)])
+                trace.append([float(final_tokens), n_cleared])
             candidates.append((str(started), {
                 "model": model,
                 "step_tokens": [float(t) for t in marks],
@@ -190,7 +208,7 @@ def convert(paths, title, models=None, config_limit=None, last_per_model=None):
                 "_src": os.path.basename(f),
                 "_started": str(started),
                 "_config_limit": cfg_limit,
-                "_cleared": len(cleared),
+                "_cleared": n_cleared,
             }))
 
     if last_per_model:

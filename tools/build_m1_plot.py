@@ -5,7 +5,7 @@ y starts at 0, no baseline offset.
 Usage: build_m1_plot.py [BUDGET_TOKENS]   # default 50000000 (also use 100000000)
 Writes /tmp/m1_runs_<N>M.json for plot_steps_vs_tokens.py.
 
-Run filter: keep only runs that ran >=90% of the budget AND cleared >=1 flag.
+Run filter: keep only runs that ran >=75% of the budget AND cleared >=1 flag.
 """
 import glob, os, sys, json
 from collections import defaultdict
@@ -17,7 +17,7 @@ from inspect_ai.log import read_eval_log
 LOGDIR = "inspect/nilgiri/logs"
 BUDGET = float(sys.argv[1]) if len(sys.argv) > 1 else 50_000_000.0
 OUT_JSON = f"/tmp/m1_runs_{int(BUDGET//1_000_000)}M.json"
-BEST_FOR = {"gpt-5.5"}  # only this model shows a mean->best band
+BEST_FOR = {"gpt-5.6-sol"}  # only this model shows a mean->best band
 
 
 def cleared_of(h):
@@ -48,7 +48,7 @@ for f in sorted(glob.glob(os.path.join(LOGDIR, "*.eval"))):
         continue
     mu = getattr(h.stats, "model_usage", {}) or {}
     used = sum((getattr(v, "total_tokens", 0) or 0) for v in mu.values())
-    if used < 0.90 * BUDGET or cleared_of(h) < 1:
+    if used < 0.75 * BUDGET or cleared_of(h) < 1:
         continue
     files.append(f)
 print(f"selected {len(files)} M1-start {int(BUDGET//1e6)}M real-budget runs", file=sys.stderr)
@@ -86,6 +86,18 @@ for r in runs:
         out.append([BUDGET, ylast])
     r["trace"] = out
     r["token_limit"] = BUDGET
+
+# 6) for each band model, add a "<model> (best)" series (label only, no line)
+# marking its best run at the band's upper edge.
+import copy
+for m in BEST_FOR:
+    m_runs = [r for r in runs if r["model"] == m]
+    if not m_runs:
+        continue
+    best = max(m_runs, key=lambda r: r.get("_cleared", 0))
+    br = copy.deepcopy(best)
+    br["model"] = f"{m} (best)"
+    runs.append(br)
 
 data["runs"] = runs
 data["band_models"] = sorted(BEST_FOR)
