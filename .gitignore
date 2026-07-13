@@ -10,8 +10,10 @@ packer_cache/
 
 # Built artifacts -- live under /mnt/vm-storage/cyber-range and should
 # never be committed in any case, but guard against accidental copies.
-images/
-isos/
+# Anchored to repo root so they don't shadow unrelated dirs like
+# docs/website/src/assets/images/.
+/images/
+/isos/
 *.qcow2
 *.img
 *.iso

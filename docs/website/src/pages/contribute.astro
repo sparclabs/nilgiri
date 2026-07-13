@@ -1,0 +1,56 @@
+---
+import Layout from '~/layouts/PageLayout.astro';
+import Steps from '~/components/widgets/Steps.astro';
+import QuickStart from '~/components/widgets/QuickStart.astro';
+import CallToAction from '~/components/widgets/CallToAction.astro';
+
+const metadata = {
+  title: 'Contribute',
+  description: 'Stand up the Nilgiri cyber range yourself, or contribute a leaderboard update via pull request.',
+};
+---
+
+<Layout metadata={metadata}>
+  <QuickStart tagline="Run it yourself" title="Stand up the range in your own environment" />
+
+  <Steps
+    tagline="Contribute data"
+    title="Update the leaderboard with a pull request"
+    items={[
+      {
+        title: 'Edit docs/leaderboard/results.json',
+        description:
+          'This is the file contributors edit directly -- add a model entry, correct a milestone\'s numbers, or flip data_quality.status to "measured" / verified: true once real eval logs back a result.',
+        icon: 'tabler:edit',
+      },
+      {
+        title: 'Open a PR',
+        description:
+          'validate-data.yml runs automatically, checking the edit against schema.json plus semantic rules (flag counts vs. flags/manifest.yaml, pass@3 fractions, monotonicity across token budgets, required caveats).',
+        icon: 'tabler:git-pull-request',
+      },
+      {
+        title: 'Merge to main',
+        description:
+          'deploy-pages.yml triggers automatically, rebuilds the site with the new numbers baked in, and redeploys to GitHub Pages -- no manual deploy step.',
+        icon: 'tabler:rocket',
+      },
+    ]}
+  />
+
+  <CallToAction
+    actions={[
+      {
+        variant: 'primary',
+        text: 'Open a pull request',
+        href: 'https://github.com/sparclabs/nilgiri/pulls',
+        target: '_blank',
+        icon: 'tabler:brand-github',
+      },
+    ]}
+  >
+    <Fragment slot="title">Found an issue, or have real eval data?</Fragment>
+    <Fragment slot="subtitle">Contributions to the range, the scorer, or the leaderboard data are all welcome.</Fragment
+    >
+  </CallToAction>
+</Layout>

@@ -1,0 +1,98 @@
+---
+import WidgetWrapper from '~/components/ui/WidgetWrapper.astro';
+import Headline from '~/components/ui/Headline.astro';
+import { loadResults } from '~/data/results';
+import type { Widget } from '~/types';
+
+interface Props extends Widget {
+  title?: string;
+  subtitle?: string;
+  tagline?: string;
+}
+
+const { title, subtitle, tagline, id, isDark = false, classes = {}, bg } = Astro.props as Props;
+
+const results = loadResults();
+const tabs = [
+  { id: 'overall', label: 'Overall' },
+  ...results.benchmark.milestones.map((m) => ({ id: m.id, label: m.id })),
+];
+const dataQuality = results.models[0]?.data_quality;
+const budgets = results.benchmark.token_budgets;
+const maxBudget = Math.max(...budgets);
+const formatBudget = (b: number) => `${Math.round(b / 1_000_000)}M`;
+---
+
+<WidgetWrapper id={id} isDark={isDark} containerClass={`max-w-6xl ${classes?.container ?? ''}`} bg={bg}>
+  <Headline title={title} subtitle={subtitle} tagline={tagline} />
+
+  {
+    dataQuality?.status === 'estimated' && (
+      <div class="mb-6 rounded-md border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+        <strong>Estimated data.</strong> {dataQuality.caveat} A ✓ next to a model name means that result has been
+        independently verified; everything below is currently unverified and illustrative.
+      </div>
+    )
+  }
+
+  <div class="mb-4 flex flex-wrap items-center gap-3">
+    <label for="token-budget-select" class="text-sm font-medium text-default">Max Output Tokens</label>
+    <select
+      id="token-budget-select"
+      class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-default dark:border-slate-600 dark:bg-slate-900"
+    >
+      {
+        budgets.map((b) => (
+          <option value={b} selected={b === maxBudget}>
+            {formatBudget(b)}
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  <div class="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Filter by milestone" id="milestone-tabs">
+    {
+      tabs.map((t) => (
+        <button
+          type="button"
+          role="tab"
+          data-tab={t.id}
+          aria-selected={t.id === 'overall' ? 'true' : 'false'}
+          class:list={[
+            'rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
+            t.id === 'overall'
+              ? 'border-primary bg-primary text-white'
+              : 'border-gray-300 text-muted hover:border-primary hover:text-primary dark:border-slate-600',
+          ]}
+        >
+          {t.label}
+        </button>
+      ))
+    }
+  </div>
+
+  <p class="mb-3 text-xs text-muted" id="milestone-caption"></p>
+
+  <div id="nilgiri-leaderboard-grid" class="w-full"></div>
+
+  <p class="mt-4 text-xs text-muted">
+    n = {results.runs_per_model} runs per model · data generated {results.generated_at.slice(0, 10)} ·{' '}
+    <a
+      class="underline hover:text-primary"
+      href="https://github.com/sparclabs/nilgiri/blob/main/docs/leaderboard/results.json"
+      target="_blank"
+      rel="noopener"
+    >
+      raw results.json
+    </a>
+  </p>
+
+  <script
+    is:inline
+    type="application/json"
+    id="nilgiri-results-data"
+    set:html={JSON.stringify(results).replace(/</g, '\\u003c')}
+  />
+  <script src="./leaderboard-grid.client.ts"></script>
+</WidgetWrapper>

@@ -1,0 +1,19 @@
+---
+import Layout from '~/layouts/PageLayout.astro';
+import LeaderboardGrid from '~/components/leaderboard/LeaderboardGrid.astro';
+
+const metadata = {
+  title: 'Leaderboard',
+  description:
+    "How far frontier AI agents get through Nilgiri's 9-milestone, 32-flag attack chain, sliced by max output token budget -- Avg CTFs@3 and Avg Milestones@3 globally, plus Pass@3 per milestone, for each model.",
+};
+---
+
+<Layout metadata={metadata}>
+  <LeaderboardGrid
+    id="leaderboard"
+    tagline="Results"
+    title="Nilgiri Leaderboard"
+    subtitle="Avg CTFs@3 and Avg Milestones@3 are global, independent of milestone selection. Pass@3 is milestone-specific -- Overall (the full chain) by default, or pick M1-M9. Change Max Output Tokens to see performance at a smaller budget."
+  />
+</Layout>

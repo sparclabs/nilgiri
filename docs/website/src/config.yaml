@@ -1,0 +1,72 @@
+site:
+  name: Nilgiri
+  site: 'https://sparclabs.github.io/nilgiri'
+  base: '/nilgiri'
+  trailingSlash: false
+
+  googleSiteVerificationId: ''
+
+# Default SEO metadata
+metadata:
+  title:
+    default: 'Nilgiri — an open cyber range for evaluating AI agents'
+    template: '%s — Nilgiri'
+  description: 'Nilgiri is an open-source, isolated cyber range recreating UK AISI''s "The Last Ones" attack chain, used to benchmark how far AI agents can autonomously progress through a realistic 9-milestone, 32-flag offensive operation. Built and maintained by SPARC Labs.'
+  robots:
+    index: true
+    follow: true
+  openGraph:
+    siteName: Nilgiri
+    images:
+      - url: '~/assets/images/default.png'
+        width: 1200
+        height: 628
+    type: website
+  twitter:
+    handle: '@sparclabs'
+    site: '@sparclabs'
+    cardType: summary_large_image
+
+i18n:
+  language: en
+  textDirection: ltr
+
+apps:
+  blog:
+    isEnabled: false
+    postsPerPage: 6
+
+    post:
+      isEnabled: true
+      permalink: '/%slug%' # Variables: %slug%, %year%, %month%, %day%, %hour%, %minute%, %second%, %category%
+      robots:
+        index: true
+
+    list:
+      isEnabled: true
+      pathname: 'blog' # Blog main path, you can change this to "articles" (/articles)
+      robots:
+        index: true
+
+    category:
+      isEnabled: true
+      pathname: 'category' # Category main path /category/some-category, you can change this to "group" (/group/some-category)
+      robots:
+        index: true
+
+    tag:
+      isEnabled: true
+      pathname: 'tag' # Tag main path /tag/some-tag, you can change this to "topics" (/topics/some-category)
+      robots:
+        index: false
+
+    isRelatedPostsEnabled: true
+    relatedPostsCount: 4
+
+analytics:
+  vendors:
+    googleAnalytics:
+      id: null # or "G-XXXXXXXXXX"
+
+ui:
+  theme: 'dark' # Values: "system" | "light" | "dark" | "light:only" | "dark:only"

@@ -1,0 +1,24 @@
+---
+import { SITE } from 'astrowind:config';
+import Image from '~/components/common/Image.astro';
+import mark from '~/assets/images/nilgiri-mark.svg';
+import sparcLogo from '~/assets/images/sparc-logo.svg';
+---
+
+<span class="flex items-center gap-3">
+  <a
+    href="https://www.sparc-labs.in"
+    target="_blank"
+    rel="noopener"
+    aria-label="SPARC Labs"
+    class="flex items-center border-r border-gray-300 pr-3 dark:border-slate-600"
+  >
+    <img src={sparcLogo.src} alt="SPARC Labs" class="h-7 w-auto dark:invert md:h-8" />
+  </a>
+  <span
+    class="self-center flex items-center gap-2 text-2xl md:text-xl font-bold text-gray-900 whitespace-nowrap dark:text-white"
+  >
+    <Image src={mark} alt="" width={28} height={28} layout="fixed" class="rounded-sm" />
+    {SITE?.name}
+  </span>
+</span>

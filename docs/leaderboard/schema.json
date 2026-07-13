@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sparclabs.github.io/nilgiri/leaderboard/schema.json",
+  "title": "Nilgiri Leaderboard Results",
+  "description": "Per-model Nilgiri results, sliced by max output token budget. Each model is evaluated for `runs_per_model` independent episodes against the full 9-milestone / 32-flag attack chain; every metric is an `@N` statistic over those runs, computed separately for each token budget in `benchmark.token_budgets` (since the chain is strictly sequential -- clearing milestone k requires having already cleared 1..k-1 -- a run's progress at a given budget is fully described by how many leading milestones it completed). Metrics split into two kinds: 'global' (avg flags/milestones captured, independent of milestone selection) and 'milestone' (Pass@3, which is reported per milestone plus an 'overall'/full-chain figure).",
+  "type": "object",
+  "required": ["generated_at", "runs_per_model", "benchmark", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp this file was last (re)generated."
+    },
+    "runs_per_model": {
+      "type": "integer",
+      "const": 3,
+      "description": "Number of independent episodes each model is evaluated over (n=3 currently)."
+    },
+    "benchmark": {
+      "type": "object",
+      "required": ["name", "total_flags", "total_milestones", "milestones", "token_budgets"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "total_flags": {
+          "type": "integer",
+          "const": 32,
+          "description": "Total flags across all milestones -- the sole source of truth for Avg CTFs@3's denominator."
+        },
+        "total_milestones": {
+          "type": "integer",
+          "const": 9,
+          "description": "Total milestones -- the sole source of truth for Avg Milestones@3's denominator."
+        },
+        "milestones": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered milestone definitions (M1..M9). Each milestone's `flags` count is the sole source of truth for cumulative-flags math -- looked up by id, never duplicated inside a model's metric objects.",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "flags"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "pattern": "^M[1-9]$" },
+              "name": { "type": "string" },
+              "flags": { "type": "integer", "minimum": 1 }
+            }
+          }
+        },
+        "token_budgets": {
+          "type": "array",
+          "description": "Max output token budgets this leaderboard is sliced by, ascending. The site's dropdown default is the last (largest) entry.",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 1
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/modelEntry" }
+    }
+  },
+  "$defs": {
+    "globalMetrics": {
+      "type": "object",
+      "required": ["avg_flags_captured_at_3", "avg_milestones_completed_at_3", "pass_at_3"],
+      "additionalProperties": false,
+      "properties": {
+        "avg_flags_captured_at_3": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Avg CTFs@3 -- mean flags captured across the 3 runs, out of benchmark.total_flags. A global metric: independent of milestone selection, varies only by token budget."
+        },
+        "avg_milestones_completed_at_3": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Avg Milestones@3 -- mean number of milestones fully completed across the 3 runs, out of benchmark.total_milestones. A global metric."
+        },
+        "pass_at_3": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Overall Pass@3 -- fraction of the 3 runs that captured every flag in the full 32-flag chain. This is the milestone-dependent metric's value when 'Overall' is selected."
+        }
+      }
+    },
+    "milestoneMetric": {
+      "type": "object",
+      "required": ["pass_at_3"],
+      "additionalProperties": false,
+      "properties": {
+        "pass_at_3": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of the 3 runs that captured every flag in this specific milestone. Since runs_per_model=3, this must be one of 0, 1/3, 2/3, 1."
+        }
+      }
+    },
+    "budgetSlice": {
+      "type": "object",
+      "required": ["overall", "milestones"],
+      "additionalProperties": false,
+      "properties": {
+        "overall": { "$ref": "#/$defs/globalMetrics" },
+        "milestones": {
+          "type": "object",
+          "patternProperties": { "^M[1-9]$": { "$ref": "#/$defs/milestoneMetric" } },
+          "additionalProperties": false
+        }
+      }
+    },
+    "dataQuality": {
+      "type": "object",
+      "required": ["status", "verified", "method", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["estimated", "measured"],
+          "description": "Provenance: 'estimated' = derived from qualitative descriptions (e.g. the announcement blog), not raw eval logs. 'measured' = computed directly from real Inspect AI eval logs via generate_results.py --from-runs."
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Whether this result has been independently reproduced/audited, orthogonal to `status`. Shown as a checkmark badge in the leaderboard UI when true; no badge (not a cross) when false."
+        },
+        "method": {
+          "type": "string",
+          "description": "Short label for how the numbers were produced, e.g. 'ordinal-derived-from-blog-qualitative-findings' or 'inspect-eval-logs'."
+        },
+        "source": {
+          "type": "string",
+          "description": "URL or path to the source material."
+        },
+        "caveat": {
+          "type": "string",
+          "description": "Required whenever status is 'estimated' -- a human-readable caution against citing this as measured data."
+        }
+      },
+      "if": { "properties": { "status": { "const": "estimated" } } },
+      "then": { "required": ["status", "verified", "method", "source", "caveat"] }
+    },
+    "modelEntry": {
+      "type": "object",
+      "required": ["id", "display_name", "provider", "by_token_budget", "data_quality"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "provider": { "type": "string" },
+        "by_token_budget": {
+          "type": "object",
+          "description": "Keyed by token budget as a string (matching benchmark.token_budgets entries), one budgetSlice per budget.",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/budgetSlice" }
+        },
+        "data_quality": { "$ref": "#/$defs/dataQuality" },
+        "notes": {
+          "type": "string",
+          "description": "Freeform color that doesn't fit the grid's columns (e.g. token efficiency, robustness regressions, separate-experiment findings not reflected in these figures)."
+        }
+      }
+    }
+  }
+}

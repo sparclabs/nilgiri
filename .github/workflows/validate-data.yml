@@ -1,0 +1,29 @@
+name: Validate leaderboard data
+
+on:
+  pull_request:
+    paths:
+      - 'docs/leaderboard/**'
+      - 'flags/manifest.yaml'
+      - 'docs/scripts/**'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/leaderboard/**'
+      - 'flags/manifest.yaml'
+      - 'docs/scripts/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r docs/scripts/requirements.txt
+
+      - name: Validate results.json against schema.json + flags/manifest.yaml
+        run: python docs/scripts/validate_results.py docs/leaderboard/results.json docs/leaderboard/schema.json

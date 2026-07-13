@@ -1,0 +1,202 @@
+---
+import Layout from '~/layouts/PageLayout.astro';
+
+import Hero from '~/components/widgets/Hero.astro';
+import Stats from '~/components/widgets/Stats.astro';
+import Features from '~/components/widgets/Features.astro';
+import Content from '~/components/widgets/Content.astro';
+import NetworkTopology from '~/components/widgets/NetworkTopology.astro';
+import Steps from '~/components/widgets/Steps.astro';
+import CallToAction from '~/components/widgets/CallToAction.astro';
+
+const metadata = {
+  title: 'Nilgiri — an open cyber range for evaluating AI agents',
+  ignoreTitleTemplate: true,
+};
+---
+
+<Layout metadata={metadata}>
+  <!-- Hero ************************** -->
+
+  <Hero
+    tagline="Open-source, AI-native cyber range"
+    actions={[
+      { variant: 'primary', text: 'View leaderboard', href: '/nilgiri/leaderboard' },
+      {
+        variant: 'secondary',
+        text: 'GitHub repository',
+        href: 'https://github.com/sparclabs/nilgiri',
+        target: '_blank',
+        icon: 'tabler:brand-github',
+      },
+    ]}
+  >
+    <Fragment slot="title">
+      Nilgiri: an open cyber range for<span class="text-accent dark:text-accent"> evaluating AI agents</span>
+    </Fragment>
+
+    <Fragment slot="subtitle">
+      A fully open-source, isolated cyber range recreating UK AISI's "The Last Ones" attack chain — measuring how far
+      autonomous AI agents get through a realistic 9-milestone, 32-flag offensive operation before they stall.
+    </Fragment>
+  </Hero>
+
+  <!-- Stats ************************* -->
+
+  <Stats
+    stats={[
+      { title: 'Flags', amount: '32' },
+      { title: 'Milestones', amount: '9' },
+      { title: 'Virtual machines', amount: '16' },
+      { title: 'Network segments', amount: '5' },
+    ]}
+  />
+
+  <!-- Attack chain design philosophy *** -->
+
+  <Features
+    id="methodology"
+    tagline="Inspired from modern cyber attack patterns"
+    title="End-to-end sequential attack chains, not isolated cyber tasks"
+    columns={2}
+    items={[
+      {
+        title: 'Fully open-source',
+        description:
+          "Capability claims are only as trustworthy as the ability for others to verify them. Anyone can stand up the range, audit the flag manifest, and reproduce results — unlike closed ranges such as UK AISI's.",
+        icon: 'tabler:lock-open',
+      },
+      {
+        title: 'Built on libvirt/KVM + a forked GOAD substrate',
+        description:
+          'Nilgiri recreates UK AISI\'s "The Last Ones" cyber range (arXiv 2603.11214, Appendix C, Figure 5): an internet-facing DMZ, two Active Directory domains, and an isolated internal network holding CI/CD infrastructure and a protected secrets database.',
+        icon: 'tabler:server-2',
+      },
+      {
+        title: 'Scored by the open-source Inspect AI framework',
+        description:
+          'Agents get a sandbox with a shell, Python, and standard offensive tooling. A per-step flag scorer checks progress against flags/manifest.yaml, the single source of truth for all 32 planted flag UUIDs.',
+        icon: 'tabler:list-check',
+      },
+      {
+        title: 'One dependent chain, fixed token budgets, 3 runs per model',
+        description:
+          'All 32 flags across 9 milestones form a single sequence where each step depends on the one before. Models are evaluated at several max output token budgets, 3 runs each — the basis for every Avg CTFs@3, Avg Milestones@3, and Pass@3 figure on the leaderboard.',
+        icon: 'tabler:link',
+      },
+      {
+        title: 'Research infrastructure only',
+        description:
+          'This is research infrastructure for AI safety evals only. It runs on fully isolated networks with no defenders and no internet egress from the victim segments.',
+        icon: 'tabler:shield-exclamation',
+      },
+    ]}
+  />
+
+  <!-- Network topology ************** -->
+
+  <NetworkTopology
+    tagline="Range architecture"
+    title="16 VMs, 5 network segments, one attack path"
+    subtitle="dmz → charlie/oscar (two AD domains) → alpha (isolated CI/CD + secrets), reachable only through a Mythic C2 pivot off the beachhead implant."
+  />
+
+  <!-- Milestones ******************** -->
+
+  <Steps
+    id="milestones"
+    tagline="The attack chain"
+    title="9 milestones, 32 flags"
+    items={[
+      {
+        title: 'M1 — Reconnaissance <span class="text-muted font-normal">(4 flags)</span>',
+        description: 'VPN portal recon, default credentials, and an OpenVPN tunnel into the victim networks.',
+        icon: 'tabler:search',
+      },
+      {
+        title: 'M2 — Lateral movement <span class="text-muted font-normal">(3 flags)</span>',
+        description: 'SMB null-session enumeration and AS-REP roasting against an Active Directory domain.',
+        icon: 'tabler:arrows-right-left',
+      },
+      {
+        title: 'M3 — Browser credential theft <span class="text-muted font-normal">(2 flags)</span>',
+        description: 'DCOM lateral movement, then decrypting Chrome Login Data + DPAPI secrets on a workstation.',
+        icon: 'tabler:key',
+      },
+      {
+        title: 'M4 — Wiki exploit and credential replay <span class="text-muted font-normal">(4 flags)</span>',
+        description: 'A MediaWiki stored-XSS chain: bot coercion, NTLM relay to a file server, and a KeePass crack.',
+        icon: 'tabler:bug',
+      },
+      {
+        title: 'M5 — Web app exploit and privilege escalation <span class="text-muted font-normal">(6 flags)</span>',
+        description: 'SQLi to xp_cmdshell RCE, LSA secrets, Kerberos S4U/constrained delegation, and LAPS.',
+        icon: 'tabler:shield-lock',
+      },
+      {
+        title: 'M6 — C2 reverse engineering <span class="text-muted font-normal">(3 flags)</span>',
+        description: 'Reverse-engineer a C# Windows service, impersonate a SYSTEM token, decrypt an AES-GCM secret.',
+        icon: 'tabler:cpu',
+      },
+      {
+        title: 'M7 — Advanced persistence <span class="text-muted font-normal">(5 flags)</span>',
+        description:
+          'Authenticate to Mythic C2, pivot via SOCKS into a second AD forest, harvest git/PowerShell history, and exfiltrate a masked GitLab CI/CD variable.',
+        icon: 'tabler:antenna',
+      },
+      {
+        title: 'M8 — Infrastructure compromise <span class="text-muted font-normal">(1 flag)</span>',
+        description: 'A backdoored CI/CD artifact rides a deploy pipeline to Domain Admin code execution.',
+        icon: 'tabler:git-branch',
+      },
+      {
+        title: 'M9 — Full network takeover <span class="text-muted font-normal">(4 flags)</span>',
+        description: 'A layered SQL stored-procedure injection chain for final data exfiltration.',
+        icon: 'tabler:flag',
+      },
+    ]}
+  />
+
+  <!-- CTA: Leaderboard ************** -->
+
+  <CallToAction actions={[{ variant: 'primary', text: 'Explore the full leaderboard', href: '/nilgiri/leaderboard' }]}>
+    <Fragment slot="title">See how every model stacks up</Fragment>
+    <Fragment slot="subtitle">
+      Compare Avg CTFs@3 and Avg Milestones@3 globally, filter Pass@3 by milestone, and slide the max output token
+      budget to see progress at 20M through 100M tokens.
+    </Fragment>
+  </CallToAction>
+
+  <!-- Related work / citation ******* -->
+
+  <Content
+    id="related-work"
+    tagline="Related work"
+    title="Built on open research"
+    items={[
+      {
+        title: 'UK AISI — "The Last Ones"',
+        description: 'arXiv 2603.11214, Appendix C, Figure 5 — the original attack chain Nilgiri recreates.',
+      },
+      {
+        title: 'GOAD (Game of Active Directory)',
+        description: "Nilgiri's Active Directory substrate is a pinned, hardened fork of the upstream GOAD project.",
+      },
+      {
+        title: 'Inspect AI',
+        description: "UK AISI's open-source evaluation framework, used here for sandboxing and per-step scoring.",
+      },
+    ]}
+  >
+    <Fragment slot="content">
+      <h3 class="mb-2 text-2xl font-bold tracking-tight text-heading sm:text-3xl">MIT licensed, fully reproducible</h3>
+      Nilgiri and its leaderboard tooling are released under the MIT License. Read the full writeup in
+      <a
+        class="underline hover:text-primary"
+        href="https://www.sparc-labs.in/resources/introducing-nilgiri/"
+        target="_blank"
+        rel="noopener">the announcement blog post</a
+      >.
+    </Fragment>
+  </Content>
+</Layout>

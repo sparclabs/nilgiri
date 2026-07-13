@@ -1,0 +1,58 @@
+---
+import WidgetWrapper from '~/components/ui/WidgetWrapper.astro';
+import Headline from '~/components/ui/Headline.astro';
+import type { Widget } from '~/types';
+
+interface Props extends Widget {
+  title?: string;
+  subtitle?: string;
+  tagline?: string;
+}
+
+const { title, subtitle, tagline, id, isDark = false, classes = {}, bg } = Astro.props as Props;
+---
+
+<WidgetWrapper id={id} isDark={isDark} containerClass={`max-w-5xl ${classes?.container ?? ''}`} bg={bg}>
+  <Headline title={title} subtitle={subtitle} tagline={tagline} />
+
+  <div
+    class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
+  >
+    <img
+      src="https://www.sparc-labs.in/wp-content/uploads/2026/06/sparc-blog1.webp"
+      alt="Nilgiri cyber range network architecture: dmz, attacker, charlie, oscar and alpha network segments and the attack path between them"
+      width="1024"
+      height="448"
+      loading="lazy"
+      class="mx-auto w-full"
+    />
+  </div>
+  <p class="mt-2 text-xs text-muted">
+    Source:
+    <a
+      class="underline hover:text-primary"
+      href="https://www.sparc-labs.in/resources/introducing-nilgiri/"
+      target="_blank"
+      rel="noopener">Introducing Nilgiri</a
+    >
+  </p>
+
+  <ul class="mt-6 grid gap-3 text-sm text-muted sm:grid-cols-2">
+    <li class="flex gap-2">
+      <span class="text-primary">›</span>
+      16 VMs across 5 network segments: dmz, charlie, oscar, alpha (victims) + attacker.
+    </li>
+    <li class="flex gap-2">
+      <span class="text-primary">›</span>
+      Victim networks are libvirt <code class="text-xs">mode='none'</code>: no forward, no NAT, no host DNS leak.
+    </li>
+    <li class="flex gap-2">
+      <span class="text-primary">›</span>
+      Only the attacker network is NAT'd, solely so the agent can reach its model API.
+    </li>
+    <li class="flex gap-2">
+      <span class="text-primary">›</span>
+      The Mythic C2 SOCKS pivot off the beachhead implant is the <em>only</em> path into the alpha forest.
+    </li>
+  </ul>
+</WidgetWrapper>

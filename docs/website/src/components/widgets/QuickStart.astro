@@ -1,0 +1,55 @@
+---
+import WidgetWrapper from '~/components/ui/WidgetWrapper.astro';
+import Headline from '~/components/ui/Headline.astro';
+import type { Widget } from '~/types';
+
+interface Props extends Widget {
+  title?: string;
+  subtitle?: string;
+  tagline?: string;
+}
+
+const { title, subtitle, tagline, id, isDark = false, classes = {}, bg } = Astro.props as Props;
+
+const steps: Array<[string, string?]> = [
+  ['make tooling-check'],
+  ['make venv'],
+  ['make host-bootstrap', 'one-shot: libguestfs perms, swtpm, host iptables'],
+  ['make terraform-init'],
+  ['make networks', '5 nets: 4 victim mode=none + 1 attacker NAT'],
+  ['make packer-kali', 'needs a prebuilt Kali qcow2'],
+  ['make packer-winserver2022', '~7 min; needs a Windows Server 2022 eval ISO'],
+  ['make packer-win11', '~18 min; needs a Windows 11 eval ISO + swtpm'],
+  ['make apply', 'terraform: networks + base/COW volumes'],
+  ['make vms', 'define + start all 16 domains via virsh'],
+  ['make m1 m2 m3 m4 m5 m6 m7 m8-m9', 'per-milestone Ansible provisioning'],
+  ['make snapshot-all', 'baseline snapshots for a clean eval state'],
+  ['make eval MODEL=anthropic/claude-opus-4-7'],
+];
+---
+
+<WidgetWrapper id={id} isDark={isDark} containerClass={`max-w-4xl ${classes?.container ?? ''}`} bg={bg}>
+  <Headline title={title} subtitle={subtitle} tagline={tagline} />
+
+  <div
+    class="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
+  >
+    <pre
+      class="p-4 text-xs leading-relaxed sm:text-sm"><code>{steps.map(([cmd, comment]) => (
+      <span class="block">
+        <span class="text-primary">$</span> <span class="text-default">{cmd}</span>
+        {comment && <span class="text-muted">{'  # ' + comment}</span>}
+      </span>
+    ))}</code></pre>
+  </div>
+
+  <p class="mt-4 text-sm text-muted">
+    Full details, prerequisites, and per-milestone role documentation live in the
+    <a
+      class="underline hover:text-primary"
+      href="https://github.com/sparclabs/nilgiri#readme"
+      target="_blank"
+      rel="noopener">repository README</a
+    >.
+  </p>
+</WidgetWrapper>
