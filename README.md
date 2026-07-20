@@ -16,7 +16,7 @@ top-of-project plan we are working through).
 ## Updates
 06/26: [Introducing Nilgiri: An Open-Source Cyber Range for Evaluating Long-Horizon Cyber Capabilities of Frontier AI Models](https://www.sparc-labs.in/resources/introducing-nilgiri/)
 
-07/26: [Our evaluation of GPT-5.6 Sol]()
+07/26: [Our Evaluation of Cybersecurity Capabilities of GPT-5.6 and Kimi-K3](https://www.sparc-labs.in/resources/our-evaluation-of-cybersecurity-capabilities-of-gpt-5-6-and-kimi-k3/)
 
 ## Network topology
 
