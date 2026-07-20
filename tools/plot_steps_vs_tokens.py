@@ -135,6 +135,15 @@ MODEL_COLOR_IDX = {
     "deepseek-v4-pro": 4,     # purple
     "glm-5.2": 5,             # brown
     "gemini-3.1-pro-preview": 6,  # pink
+    "gpt-5.6-sol": 7,         # grey (overridden by MODEL_COLOR_HEX below)
+    "kimi-k3": 9,             # cyan
+}
+
+# Explicit hex overrides take precedence over MODEL_COLOR_IDX -- use for a
+# headline model that needs a brighter, higher-contrast color than tab10 offers
+# (especially for its shaded band on the dark theme).
+MODEL_COLOR_HEX = {
+    "gpt-5.6-sol": "#ffd21e",  # bright gold -- headline model, visible line + band
 }
 
 
@@ -144,7 +153,17 @@ def _base_model(name):
 
 def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
          legend=True, label_fontsize=11, figsize=(8, 6), dpi=150,
-         bbox_tight=False, ymax=None, ytick_step=None):
+         bbox_tight=False, ymax=None, ytick_step=None, dark=False,
+         tick_fontsize=None, axis_fontsize=None, model_label_fontsize=None):
+    # right-edge model-name labels default to label_fontsize unless overridden
+    model_label_fontsize = (model_label_fontsize if model_label_fontsize
+                            is not None else label_fontsize)
+    if dark:
+        plt.style.use("dark_background")
+    # Gridline / milestone-label greys: light-on-dark vs dark-on-light.
+    grid_c = "0.4" if dark else "0.3"
+    ms_line_c = "0.4" if dark else "0.3"
+    ms_text_c = "0.6" if dark else "0.45"
     runs = data["runs"]
     # Optional: only these (base) models get a shaded band spanning mean->best
     # (max) run; everyone else is a bare mean line. If absent, all models get a
@@ -199,17 +218,26 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
             ym = gaussian_smooth(ym, smooth)
             yl = gaussian_smooth(yl, smooth)
             yh = gaussian_smooth(yh, smooth)
+        hexc = MODEL_COLOR_HEX.get(_base_model(model))
         ci = MODEL_COLOR_IDX.get(_base_model(model))
-        color = cmap(ci % 10) if ci is not None else cmap(idx % 10)
+        if hexc is not None:
+            color = hexc
+        elif ci is not None:
+            color = cmap(ci % 10)
+        else:
+            color = cmap(idx % 10)
+        is_best = model.endswith(" (best)")
         if band_models is None:
             ax.fill_between(x_grid[valid], yl, yh, color=color, alpha=0.15,
                             linewidth=0)  # legacy: full min-max band for all
-        elif _base_model(model) in band_models:
-            # band from the mean up to the best (max) run -- no min side, no
-            # separate best line; the band's upper edge IS the best run.
+        elif _base_model(model) in band_models and not is_best:
+            # band from the base model's mean up to its best (max) run; the
+            # "<model> (best)" series only contributes a label at the band's
+            # upper edge -- no separate line.
             ax.fill_between(x_grid[valid], ym, yh, color=color, alpha=0.18,
                             linewidth=0)
-        ax.plot(x_grid[valid], ym, color=color, linewidth=2, label=model)
+        if not is_best:  # "(best)" gets a label only, no line
+            ax.plot(x_grid[valid], ym, color=color, linewidth=2, label=model)
         if markers:  # one dot per actual trace point, per run
             for r in model_runs:
                 tok, stp = run_curve(r)
@@ -230,7 +258,7 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
             last = ly
             ax.annotate(
                 model, xy=(xe, ye), xytext=(label_x, ly), textcoords="data",
-                va="center", ha="left", fontsize=label_fontsize, color=color,
+                va="center", ha="left", fontsize=model_label_fontsize, color=color,
                 fontweight="bold", annotation_clip=False,
             )
 
@@ -239,10 +267,10 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
     for name, step in (data.get("milestones") or {}).items():
         if step < ymin or step > yhi:
             continue
-        ax.axhline(step, color="0.8", linewidth=0.8, zorder=0)
+        ax.axhline(step, color=ms_line_c, linewidth=0.7, zorder=0)
         ax.text(
             x_min, step + 0.05 * max_steps * 0.0 + 0.1, name,
-            fontsize=max(8, label_fontsize - 2), color="0.45",
+            fontsize=max(8, label_fontsize - 2), color=ms_text_c,
             va="bottom", ha="left",
         )
 
@@ -255,12 +283,15 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
         ax.yaxis.set_major_locator(MultipleLocator(ytick_step))
     else:
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))  # whole-number steps
-    ax.set_xlabel("Cumulative tokens" + (" (log)" if log_x else ""))
-    ax.set_ylabel("Avg. steps completed")
+    ax.set_xlabel("Cumulative tokens" + (" (log)" if log_x else ""),
+                  fontsize=axis_fontsize)
+    ax.set_ylabel("Flags Captured", fontsize=axis_fontsize)
+    if tick_fontsize:
+        ax.tick_params(axis="both", labelsize=tick_fontsize)
     if data.get("title"):
         ax.set_title(data["title"])
     ax.xaxis.set_major_formatter(FuncFormatter(token_formatter))
-    ax.grid(axis="x", which="major", color="0.92", linewidth=0.6)
+    ax.grid(axis="x", which="major", color=grid_c, linewidth=0.6)
     if legend:
         ax.legend(loc="upper left", fontsize=8, frameon=False)
     fig.tight_layout()
@@ -334,6 +365,15 @@ def main():
     ap.add_argument("--dpi", type=float, default=150, help="Output DPI.")
     ap.add_argument("--bbox-tight", action="store_true",
                     help="Save with bbox_inches='tight' (crop to content).")
+    ap.add_argument("--dark", action="store_true",
+                    help="Dark theme (black background, light text/gridlines).")
+    ap.add_argument("--tick-fontsize", type=float, default=None,
+                    help="Font size for x/y tick labels (default: rcParams).")
+    ap.add_argument("--axis-fontsize", type=float, default=None,
+                    help="Font size for x/y axis titles (default: rcParams).")
+    ap.add_argument("--model-label-fontsize", type=float, default=None,
+                    help="Font size for the right-edge model-name labels "
+                         "(default: --label-fontsize).")
     args = ap.parse_args()
     fw, fh = (float(v) for v in args.figsize.lower().split("x"))
 
@@ -347,7 +387,10 @@ def main():
     plot(data, args.out, log_x=not args.linear, smooth=args.smooth,
          markers=args.markers, ymin=args.ymin, legend=not args.no_legend,
          label_fontsize=args.label_fontsize, figsize=(fw, fh), dpi=args.dpi,
-         bbox_tight=args.bbox_tight, ymax=args.ymax, ytick_step=args.ytick_step)
+         bbox_tight=args.bbox_tight, ymax=args.ymax, ytick_step=args.ytick_step,
+         dark=args.dark, tick_fontsize=args.tick_fontsize,
+         axis_fontsize=args.axis_fontsize,
+         model_label_fontsize=args.model_label_fontsize)
 
 
 if __name__ == "__main__":

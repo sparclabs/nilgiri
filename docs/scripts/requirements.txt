@@ -1,2 +1,8 @@
+# Dependencies for validate_results.py (what CI runs).
 jsonschema>=4.21
 PyYAML>=6.0
+
+# generate_results.py additionally needs `inspect_ai` to read the .eval logs.
+# It is run locally by maintainers (from the main project venv), not in CI,
+# so it is intentionally left out of the light validator requirements above.
+# inspect_ai>=0.3
