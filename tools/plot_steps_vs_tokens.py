@@ -135,7 +135,15 @@ MODEL_COLOR_IDX = {
     "deepseek-v4-pro": 4,     # purple
     "glm-5.2": 5,             # brown
     "gemini-3.1-pro-preview": 6,  # pink
-    "gpt-5.6-sol": 7,         # grey
+    "gpt-5.6-sol": 7,         # grey (overridden by MODEL_COLOR_HEX below)
+    "kimi-k3": 9,             # cyan
+}
+
+# Explicit hex overrides take precedence over MODEL_COLOR_IDX -- use for a
+# headline model that needs a brighter, higher-contrast color than tab10 offers
+# (especially for its shaded band on the dark theme).
+MODEL_COLOR_HEX = {
+    "gpt-5.6-sol": "#ffd21e",  # bright gold -- headline model, visible line + band
 }
 
 
@@ -145,7 +153,8 @@ def _base_model(name):
 
 def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
          legend=True, label_fontsize=11, figsize=(8, 6), dpi=150,
-         bbox_tight=False, ymax=None, ytick_step=None, dark=False):
+         bbox_tight=False, ymax=None, ytick_step=None, dark=False,
+         tick_fontsize=None, axis_fontsize=None):
     if dark:
         plt.style.use("dark_background")
     # Gridline / milestone-label greys: light-on-dark vs dark-on-light.
@@ -206,8 +215,14 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
             ym = gaussian_smooth(ym, smooth)
             yl = gaussian_smooth(yl, smooth)
             yh = gaussian_smooth(yh, smooth)
+        hexc = MODEL_COLOR_HEX.get(_base_model(model))
         ci = MODEL_COLOR_IDX.get(_base_model(model))
-        color = cmap(ci % 10) if ci is not None else cmap(idx % 10)
+        if hexc is not None:
+            color = hexc
+        elif ci is not None:
+            color = cmap(ci % 10)
+        else:
+            color = cmap(idx % 10)
         is_best = model.endswith(" (best)")
         if band_models is None:
             ax.fill_between(x_grid[valid], yl, yh, color=color, alpha=0.15,
@@ -265,8 +280,11 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
         ax.yaxis.set_major_locator(MultipleLocator(ytick_step))
     else:
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))  # whole-number steps
-    ax.set_xlabel("Cumulative tokens" + (" (log)" if log_x else ""))
-    ax.set_ylabel("Flags Captured")
+    ax.set_xlabel("Cumulative tokens" + (" (log)" if log_x else ""),
+                  fontsize=axis_fontsize)
+    ax.set_ylabel("Flags Captured", fontsize=axis_fontsize)
+    if tick_fontsize:
+        ax.tick_params(axis="both", labelsize=tick_fontsize)
     if data.get("title"):
         ax.set_title(data["title"])
     ax.xaxis.set_major_formatter(FuncFormatter(token_formatter))
@@ -346,6 +364,10 @@ def main():
                     help="Save with bbox_inches='tight' (crop to content).")
     ap.add_argument("--dark", action="store_true",
                     help="Dark theme (black background, light text/gridlines).")
+    ap.add_argument("--tick-fontsize", type=float, default=None,
+                    help="Font size for x/y tick labels (default: rcParams).")
+    ap.add_argument("--axis-fontsize", type=float, default=None,
+                    help="Font size for x/y axis titles (default: rcParams).")
     args = ap.parse_args()
     fw, fh = (float(v) for v in args.figsize.lower().split("x"))
 
@@ -360,7 +382,8 @@ def main():
          markers=args.markers, ymin=args.ymin, legend=not args.no_legend,
          label_fontsize=args.label_fontsize, figsize=(fw, fh), dpi=args.dpi,
          bbox_tight=args.bbox_tight, ymax=args.ymax, ytick_step=args.ytick_step,
-         dark=args.dark)
+         dark=args.dark, tick_fontsize=args.tick_fontsize,
+         axis_fontsize=args.axis_fontsize)
 
 
 if __name__ == "__main__":
