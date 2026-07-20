@@ -154,7 +154,10 @@ def _base_model(name):
 def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
          legend=True, label_fontsize=11, figsize=(8, 6), dpi=150,
          bbox_tight=False, ymax=None, ytick_step=None, dark=False,
-         tick_fontsize=None, axis_fontsize=None):
+         tick_fontsize=None, axis_fontsize=None, model_label_fontsize=None):
+    # right-edge model-name labels default to label_fontsize unless overridden
+    model_label_fontsize = (model_label_fontsize if model_label_fontsize
+                            is not None else label_fontsize)
     if dark:
         plt.style.use("dark_background")
     # Gridline / milestone-label greys: light-on-dark vs dark-on-light.
@@ -255,7 +258,7 @@ def plot(data, out_path, log_x=True, smooth=0.0, markers=False, ymin=0.0,
             last = ly
             ax.annotate(
                 model, xy=(xe, ye), xytext=(label_x, ly), textcoords="data",
-                va="center", ha="left", fontsize=label_fontsize, color=color,
+                va="center", ha="left", fontsize=model_label_fontsize, color=color,
                 fontweight="bold", annotation_clip=False,
             )
 
@@ -368,6 +371,9 @@ def main():
                     help="Font size for x/y tick labels (default: rcParams).")
     ap.add_argument("--axis-fontsize", type=float, default=None,
                     help="Font size for x/y axis titles (default: rcParams).")
+    ap.add_argument("--model-label-fontsize", type=float, default=None,
+                    help="Font size for the right-edge model-name labels "
+                         "(default: --label-fontsize).")
     args = ap.parse_args()
     fw, fh = (float(v) for v in args.figsize.lower().split("x"))
 
@@ -383,7 +389,8 @@ def main():
          label_fontsize=args.label_fontsize, figsize=(fw, fh), dpi=args.dpi,
          bbox_tight=args.bbox_tight, ymax=args.ymax, ytick_step=args.ytick_step,
          dark=args.dark, tick_fontsize=args.tick_fontsize,
-         axis_fontsize=args.axis_fontsize)
+         axis_fontsize=args.axis_fontsize,
+         model_label_fontsize=args.model_label_fontsize)
 
 
 if __name__ == "__main__":
