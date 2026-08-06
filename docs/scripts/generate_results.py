@@ -76,6 +76,7 @@ MODEL_META = {
     "kimi-k3":         ("kimi-k3",        "Kimi K3",         "Moonshot AI"),
     "grok-4.5":        ("grok-4.5",       "Grok 4.5",        "xAI"),
     "grok-4.3":        ("grok-4.3",       "Grok 4.3",        "xAI"),
+    "qwen3.8-max":     ("qwen3.8-max",    "Qwen 3.8 Max",    "Alibaba"),
 }
 
 
