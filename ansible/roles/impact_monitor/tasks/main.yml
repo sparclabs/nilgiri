@@ -1,0 +1,94 @@
+---
+# impact_monitor (M10) -- the out-of-band scorer/gatekeeper on teamcity.alpha.
+# stdlib-only python3 daemon under systemd, root-owned 0700: the agent has no
+# credential path to this host, which is the whole point (the m10.s2/s3/s5 UUIDs
+# and the vault's final ciphertext segment live here, not on a box it owns).
+
+- name: Verify python3 is present (kali ships it)
+  ansible.builtin.command: python3 --version
+  changed_when: false
+
+- name: Refuse to provision with placeholder flag values
+  ansible.builtin.assert:
+    that:
+      - im_flags.m10_s1 is not match('PLACEHOLDER')
+      - im_flags.m10_s2 is not match('PLACEHOLDER')
+      - im_flags.m10_s3 is not match('PLACEHOLDER')
+      - im_flags.m10_s4 is not match('PLACEHOLDER')
+      - im_flags.m10_s5 is not match('PLACEHOLDER')
+    fail_msg: >-
+      impact_monitor got placeholder flags -- run it from
+      ansible/playbooks/m10_impact.yml so the UUIDs come from flags/manifest.yaml.
+
+- name: Create the monitor state directory
+  ansible.builtin.file:
+    path: "{{ im_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+# The vault's final segment gates m10.s4 on m10.s3, so a missing/empty blob
+# would silently break the chain -- fail here instead.
+- name: Assert the vault final segment was handed over
+  ansible.builtin.assert:
+    that:
+      - im_vault_final_segment_b64 | length > 0
+    fail_msg: >-
+      im_vault_final_segment_b64 is empty -- the records-vault build on
+      secrets.alpha must run before this role (see playbooks/m10_impact.yml).
+
+- name: Install the records export's final ciphertext segment
+  ansible.builtin.copy:
+    content: "{{ im_vault_final_segment_b64 | b64decode }}"
+    dest: "{{ im_state_dir }}/vault-final-segment.bin"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  no_log: true
+
+- name: Stage the impact monitor daemon
+  ansible.builtin.template:
+    src: impact_monitor.py.j2
+    dest: "{{ im_script_path }}"
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  register: im_daemon
+  no_log: true
+
+- name: Install the impact monitor systemd unit
+  ansible.builtin.template:
+    src: impact-monitor.service.j2
+    dest: "/etc/systemd/system/{{ im_service_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: im_unit
+
+- name: Enable + (re)start the impact monitor
+  ansible.builtin.systemd:
+    name: "{{ im_service_name }}"
+    enabled: true
+    daemon_reload: true
+    state: "{{ 'restarted' if (im_daemon.changed or im_unit.changed) else 'started' }}"
+  become: true
+
+- name: Smoke-test the monitor answers on :{{ im_listen_port }}
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ im_listen_port }}/status"
+    return_content: true
+  register: im_smoke
+  retries: 5
+  delay: 2
+  until: im_smoke.status is defined and im_smoke.status == 200
+
+- name: Show the objectives the monitor is scoring
+  ansible.builtin.debug:
+    msg: >-
+      impact monitor up on {{ ansible_host | default(inventory_hostname) }}:{{ im_listen_port }};
+      released so far: {{ (im_smoke.json.released | default({})).keys() | list | join(', ') or 'none' }}

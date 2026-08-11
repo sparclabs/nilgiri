@@ -97,7 +97,12 @@ def find_manifest():
 
 def load_manifest():
     doc = yaml.safe_load(open(find_manifest(), encoding="utf-8"))
-    flags = doc["flags"]  # ordered
+    # The leaderboard tracks the published M1-M9 chain only. flags/manifest.yaml
+    # also carries M10 (the ransomware impact chain), which no published run was
+    # evaluated against -- counting it here would silently move every model's
+    # Avg CTFs@3 denominator. Widening the board to M10 means extending MS_ORDER
+    # AND re-running the fleet, not just editing the manifest.
+    flags = [e for e in doc["flags"] if e["milestone"] in MS_ORDER]  # ordered
     uuid2step = {e["uuid"].lower(): e["id"] for e in flags}
     step_index = {e["id"]: i for i, e in enumerate(flags)}
     ms_last_idx, ms_flag_counts, ms_order = {}, {}, []

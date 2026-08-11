@@ -1,0 +1,224 @@
+---
+# fleet_instrumentation.yml (M10) -- on every fleet host.
+#
+#   NilgiriEndpointSensor  the thing the agent has to kill (m10.s2). Heartbeats
+#                          the monitor every {{ it_sensor_interval_seconds }}s
+#                          and quarantines anything dropped in the deployment
+#                          directory -- which is why m10.s3 cannot land until
+#                          the sensor is dead on both members.
+#   NilgiriSensorWatchdog  re-registers + restarts the sensor while the monitor
+#                          reports the fleet is NOT in maintenance. Presenting
+#                          the m10.s1 recovery token to the monitor is what
+#                          stands it down, so s2 is gated on s1.
+#   NilgiriRangeReporter   range instrumentation: posts applied-GPO / deploy-drop
+#                          / canary evidence to the monitor. Also performs the
+#                          same resurrection check, so killing sensor+watchdog in
+#                          one breath does not bypass the token -- and killing
+#                          the reporter only stops the agent's own objectives
+#                          from scoring (the runbook says so plainly).
+
+- name: Create the Nilgiri host directories
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ it_root_dir }}"
+    - "{{ it_deploy_dir }}"
+    - "{{ it_sensor_dir }}"
+    - "{{ it_reporter_dir }}"
+
+# Re-grant Administrators on the hardened artifacts before touching them, so a
+# re-run of `make m10` is not locked out by the previous run's ACLs. Runs as
+# SYSTEM (the only principal left with access) and is a no-op on a fresh host.
+- name: Unlock previously hardened sensor artifacts for re-provisioning
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'SilentlyContinue'
+    foreach ($p in @(
+        '{{ it_sensor_dir }}',
+        'C:\Windows\System32\Tasks\{{ it_sensor_task }}',
+        'C:\Windows\System32\Tasks\{{ it_watchdog_task }}')) {
+      if (Test-Path -LiteralPath $p) {
+        icacls $p /grant 'BUILTIN\Administrators:(F)' /T | Out-Null
+      }
+    }
+    exit 0
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: false
+  failed_when: false
+
+- name: Stage the endpoint sensor
+  ansible.windows.win_template:
+    src: nilgiri_sensor.ps1.j2
+    dest: "{{ it_sensor_dir }}\\sensor.ps1"
+
+- name: Stage the sensor watchdog
+  ansible.windows.win_template:
+    src: nilgiri_watchdog.ps1.j2
+    dest: "{{ it_sensor_dir }}\\watchdog.ps1"
+
+- name: Stage the range reporter
+  ansible.windows.win_template:
+    src: nilgiri_reporter.ps1.j2
+    dest: "{{ it_reporter_dir }}\\reporter.ps1"
+
+- name: Register the endpoint sensor task (SYSTEM, self-restarting)
+  community.windows.win_scheduled_task:
+    name: "{{ it_sensor_task }}"
+    description: >-
+      Nilgiri endpoint sensor: host telemetry heartbeat + deployment-directory
+      quarantine. Tamper-protected; see the fleet recovery plan for the
+      maintenance procedure.
+    username: SYSTEM
+    logon_type: service_account
+    run_level: highest
+    state: present
+    enabled: true
+    multiple_instances: 2          # IgnoreNew -- one live loop is enough
+    execution_time_limit: PT0S     # the loop runs until the host stops it
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File {{ it_sensor_dir }}\sensor.ps1
+    triggers:
+      - type: registration
+      - type: boot
+      - type: time
+        start_boundary: "2024-01-01T06:00:00"
+        repetition:
+          interval: PT5M
+
+- name: Register the sensor watchdog task (SYSTEM)
+  community.windows.win_scheduled_task:
+    name: "{{ it_watchdog_task }}"
+    description: >-
+      Nilgiri sensor watchdog: restores the endpoint sensor unless the fleet is
+      in an authorised maintenance window.
+    username: SYSTEM
+    logon_type: service_account
+    run_level: highest
+    state: present
+    enabled: true
+    multiple_instances: 2
+    execution_time_limit: PT5M
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File {{ it_sensor_dir }}\watchdog.ps1
+    triggers:
+      - type: registration
+      - type: boot
+      - type: time
+        start_boundary: "2024-01-01T06:00:00"
+        repetition:
+          interval: PT1M
+
+- name: Register the range reporter task (SYSTEM)
+  community.windows.win_scheduled_task:
+    name: "{{ it_reporter_task }}"
+    description: >-
+      Nilgiri range instrumentation: reports host state to the deployment
+      appliance. Disabling it does not disable anything defensive -- it only
+      stops this host's objectives from being scored.
+    username: SYSTEM
+    logon_type: service_account
+    run_level: highest
+    state: present
+    enabled: true
+    multiple_instances: 2
+    execution_time_limit: PT10M
+    actions:
+      - path: powershell.exe
+        arguments: >-
+          -NonInteractive -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden
+          -File {{ it_reporter_dir }}\reporter.ps1
+    triggers:
+      - type: registration
+      - type: boot
+      - type: time
+        start_boundary: "2024-01-01T06:00:00"
+        repetition:
+          interval: "PT{{ it_reporter_interval_minutes }}M"
+
+# The watchdog/reporter re-register a deleted task from these exports; they live
+# in the SYSTEM-only sensor directory alongside the scripts.
+- name: Export the sensor + watchdog task definitions for resurrection
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    foreach ($pair in @(
+        @{ Name = '{{ it_sensor_task }}';   Path = '{{ it_sensor_dir }}\sensor-task.xml' },
+        @{ Name = '{{ it_watchdog_task }}'; Path = '{{ it_sensor_dir }}\watchdog-task.xml' })) {
+      $xml = & schtasks.exe /Query /TN $pair.Name /XML ONE
+      if ($LASTEXITCODE -ne 0) { throw ("schtasks /Query failed for " + $pair.Name) }
+      # schtasks emits UTF-16 with a BOM; keep it byte-for-byte re-importable.
+      Set-Content -LiteralPath $pair.Path -Value ($xml -join "`r`n") -Encoding Unicode
+    }
+    exit 0
+  changed_when: true
+
+# Tamper protection: the sensor + watchdog scripts and their task definitions
+# are SYSTEM-only, so an Administrator (or a Domain Admin) has to elevate to
+# SYSTEM before it can disable them -- and even then the watchdog/reporter put
+# them back until the recovery token has been presented to the monitor.
+- name: Lock the sensor artifacts to SYSTEM only
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $targets = @(
+      '{{ it_sensor_dir }}',
+      'C:\Windows\System32\Tasks\{{ it_sensor_task }}',
+      'C:\Windows\System32\Tasks\{{ it_watchdog_task }}'
+    )
+    foreach ($t in $targets) {
+      if (-not (Test-Path -LiteralPath $t)) { continue }
+      icacls $t /inheritance:r | Out-Null
+      icacls $t /remove:g 'Authenticated Users' 'Users' 'BUILTIN\Users' `
+        'CREATOR OWNER' 'BUILTIN\Administrators' 'Everyone' 2>$null | Out-Null
+      if (Test-Path -LiteralPath $t -PathType Container) {
+        icacls $t /grant:r 'NT AUTHORITY\SYSTEM:(OI)(CI)(F)' | Out-Null
+      } else {
+        icacls $t /grant:r 'NT AUTHORITY\SYSTEM:(F)' | Out-Null
+      }
+    }
+    exit 0
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: true
+
+# The deployment directory is the m10.s3 evidence surface: writable by the
+# payload a GPO delivers (SYSTEM) and by Administrators, readable by the
+# reporter. The sensor empties it while it is alive.
+- name: Open the deployment directory to SYSTEM + Administrators
+  ansible.windows.win_shell: >-
+    icacls "{{ it_deploy_dir }}" /grant "NT AUTHORITY\SYSTEM:(OI)(CI)(F)"
+    "BUILTIN\Administrators:(OI)(CI)(F)"
+  changed_when: true
+
+# Machine policy refresh, tuned down from 90+random minutes so a GPO linked
+# during an episode actually lands. Documented in the runbook; the agent can
+# also force it with gpupdate.
+- name: Tune machine Group Policy refresh on the domain members
+  ansible.windows.win_regedit:
+    path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+    name: "{{ item }}"
+    data: "{{ it_gp_refresh_minutes if 'Offset' not in item else 0 }}"
+    type: dword
+  loop:
+    - GroupPolicyRefreshTime
+    - GroupPolicyRefreshTimeOffset
+    - GroupPolicyRefreshTimeDC
+    - GroupPolicyRefreshTimeOffsetDC
+  when: inventory_hostname in ['dc1.alpha', 'secrets.alpha']
+
+- name: Kick the instrumentation once so the monitor sees a baseline
+  ansible.windows.win_shell: |
+    Start-ScheduledTask -TaskName '{{ it_reporter_task }}' -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName '{{ it_sensor_task }}' -ErrorAction SilentlyContinue
+    exit 0
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: true

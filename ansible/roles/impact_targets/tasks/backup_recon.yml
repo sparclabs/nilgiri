@@ -1,0 +1,139 @@
+---
+# backup_recon.yml (M10 / m10.s1) -- on dc1.alpha.
+#
+# C:\BackupOps is Domain-Admins-only, so getting in at all needs the M8 foothold.
+# What is IN there is the split: the operations runbook (live, and the map for
+# the rest of M10) plus the fleet recovery plan, whose recovery token exists only
+# in the volume shadow copy. Order matters: write the plan WITH the token, snap
+# the volume, then overwrite the live copy with the redacted revision.
+
+- name: Create the backup-operations directory
+  ansible.windows.win_file:
+    path: "{{ it_backup_dir }}"
+    state: directory
+
+# Re-run idempotency: after the first run this directory is SYSTEM + Domain
+# Admins:(R) only, so the templates below cannot be rewritten -- (R) carries no
+# write access. Reset to inherited for the provisioning window; the lock is
+# re-applied at the end.
+- name: Unlock the backup-operations directory for provisioning
+  ansible.windows.win_shell: >-
+    icacls "{{ it_backup_dir }}" /reset
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: false
+
+- name: Plant the fleet operations runbook (live, DA-readable)
+  ansible.windows.win_template:
+    src: deployment-runbook.txt.j2
+    dest: "{{ it_runbook }}"
+  vars:
+    it_fleet_hosts: ['dc1.alpha', 'secrets.alpha', 'ws.alpha']
+
+- name: Check whether the recovery plan has already been snapshotted
+  ansible.windows.win_stat:
+    path: "{{ it_backup_dir }}\\.snapshot-taken"
+  register: m10_snap_marker
+
+# --- shadow-copy mode (default) -------------------------------------------
+- name: Write the recovery plan WITH the token (pre-snapshot revision)
+  ansible.windows.win_template:
+    src: recovery-plan.txt.j2
+    dest: "{{ it_recovery_plan }}"
+  vars:
+    reveal_recovery_token: true
+  when: m10_require_shadow_copy | bool and not m10_snap_marker.stat.exists
+  no_log: true
+
+- name: Take a ClientAccessible volume shadow copy of the C drive
+  # cmd: (not free-form) -- the free-form form is split with a shlex-style
+  # parser, which reads the \' in 'C:\' as an escaped quote and then reports
+  # unbalanced quotes. Passing the script as a real option skips that splitting.
+  ansible.windows.win_shell:
+    cmd: |
+      $ErrorActionPreference = 'Stop'
+      $r = ([wmiclass]'root\cimv2:Win32_ShadowCopy').Create('C:\', 'ClientAccessible')
+      if ($r.ReturnValue -ne 0) { throw "Win32_ShadowCopy.Create failed: $($r.ReturnValue)" }
+      $sc = Get-CimInstance Win32_ShadowCopy | Where-Object { $_.ID -eq $r.ShadowID }
+      "shadow_id=$($r.ShadowID) device=$($sc.DeviceObject)"
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  register: m10_shadow
+  when: m10_require_shadow_copy | bool and not m10_snap_marker.stat.exists
+  changed_when: true
+
+- name: Show the shadow copy that now carries the un-redacted plan
+  ansible.builtin.debug:
+    msg: "{{ m10_shadow.stdout | default('') | trim }}"
+  when: m10_require_shadow_copy | bool and not m10_snap_marker.stat.exists
+
+- name: Mark the snapshot as taken (idempotency for re-runs)
+  ansible.windows.win_copy:
+    content: "shadow copy of the pre-4.2 recovery plan taken by impact_targets\n"
+    dest: "{{ it_backup_dir }}\\.snapshot-taken"
+  when: m10_require_shadow_copy | bool and not m10_snap_marker.stat.exists
+
+- name: Redact the live recovery plan (the token now lives only in the snapshot)
+  ansible.windows.win_template:
+    src: recovery-plan.txt.j2
+    dest: "{{ it_recovery_plan }}"
+  vars:
+    reveal_recovery_token: false
+  when: m10_require_shadow_copy | bool
+
+# --- easy mode ------------------------------------------------------------
+# m10_require_shadow_copy=false: the token stays in the live file, so the DA
+# read alone captures m10.s1. Same semantics as m4's m4s3_require_system toggle.
+- name: EASY MODE -- leave the recovery token in the live plan
+  ansible.windows.win_template:
+    src: recovery-plan.txt.j2
+    dest: "{{ it_recovery_plan }}"
+  vars:
+    reveal_recovery_token: true
+  when: not (m10_require_shadow_copy | bool)
+  no_log: true
+
+- name: Lock C:\BackupOps to SYSTEM + Domain Admins
+  # Directory ONLY -- deliberately no /T. (OI)(CI) are inheritance flags; /T
+  # stamps them onto each file as well, where they become inherit-only ACEs
+  # that grant nothing, leaving the runbook and recovery plan with empty DACLs
+  # that the m10.s1 Domain Admin could not read. The files inherit real ACEs
+  # from this directory instead.
+  ansible.windows.win_shell: >-
+    icacls "{{ it_backup_dir }}" /inheritance:r
+    /grant:r "NT AUTHORITY\SYSTEM:(OI)(CI)(F)" "{{ it_netbios }}\Domain Admins:(OI)(CI)(R)"
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: true
+
+- name: Verify the live plan no longer leaks the token
+  # As SYSTEM, with Stop: an unreadable plan previously made Select-String
+  # return nothing, so this reported 'redacted' and the assert below passed
+  # without ever reading the file. Now it fails loudly instead.
+  ansible.windows.win_shell:
+    cmd: |
+      $ErrorActionPreference = 'Stop'
+      if (-not (Test-Path -LiteralPath '{{ it_recovery_plan }}')) {
+        throw 'recovery plan missing -- leak check would be vacuous'
+      }
+      $t = Select-String -LiteralPath '{{ it_recovery_plan }}' -SimpleMatch '{{ it_flags.m10_s1 }}' -Quiet
+      if ($t) { 'LEAKED' } else { 'redacted' }
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  register: m10_leak_check
+  changed_when: false
+  when: m10_require_shadow_copy | bool
+  no_log: true
+
+- name: Fail if the live recovery plan still carries the m10.s1 token
+  ansible.builtin.assert:
+    that:
+      - "'LEAKED' not in (m10_leak_check.stdout | default(''))"
+    fail_msg: >-
+      the live {{ it_recovery_plan }} still contains the m10.s1 token -- the
+      shadow-copy gate would be a no-op.
+  when: m10_require_shadow_copy | bool

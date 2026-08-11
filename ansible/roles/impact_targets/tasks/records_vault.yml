@@ -1,0 +1,134 @@
+---
+# records_vault.yml (M10 / m10.s4) -- on secrets.alpha.
+#
+# The nightly "records vault export": one gzip stream, AES-256-CBC encrypted
+# under SHA-256 of the M9 objective secret, cut into {{ it_vault_parts }}
+# segments. Segments 000..{{ '%03d' | format(it_vault_parts - 2) }} live here
+# behind a Domain-Admins-only ACL; the last one is held by the monitor until
+# m10.s3 lands. The objective row is the last line of the plaintext, so nothing
+# short of every segment (and the M9 secret) yields the flag.
+
+- name: Build the encrypted split export on the control host
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ role_path }}/files/build_vault_archive.py"
+      - --master-secret
+      - "{{ it_vault_master_secret }}"
+      - --flag
+      - "{{ it_flags.m10_s4 }}"
+      - --rows
+      - "{{ it_vault_rows }}"
+      - --parts
+      - "{{ it_vault_parts }}"
+      - --basename
+      - "{{ it_vault_basename }}"
+      - --out-dir
+      - "{{ it_vault_build_dir }}"
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_connection: local
+  register: m10_vault_build
+  changed_when: true
+  no_log: true
+
+- name: Parse the build result
+  ansible.builtin.set_fact:
+    m10_vault: "{{ m10_vault_build.stdout | from_json }}"
+  no_log: true
+
+# Handed to the impact_monitor play via hostvars -- this is the m10.s3 -> m10.s4
+# gate, so the monitor play asserts it is non-empty.
+- name: Publish the final segment for the monitor play
+  ansible.builtin.set_fact:
+    m10_vault_final_segment_b64: "{{ m10_vault.final_segment_b64 }}"
+  no_log: true
+
+- name: Report the archive size
+  ansible.builtin.debug:
+    msg: >-
+      records export: {{ m10_vault.plaintext_bytes }} B plaintext ->
+      {{ m10_vault.archive_bytes }} B encrypted archive in
+      {{ it_vault_parts }} segments ({{ it_vault_parts - 1 }} on secrets.alpha,
+      final segment held by the monitor)
+
+- name: Create the records vault directory
+  ansible.windows.win_file:
+    path: "{{ it_vault_dir }}"
+    state: directory
+
+# Re-run idempotency: after the first run the directory below is SYSTEM +
+# Domain Admins only, and we connect as the LOCAL Administrator -- so the
+# delete and copy that follow would fail with access denied on every
+# subsequent run. Reset to inherited (Administrators:F) for the provisioning
+# window; the lock is re-applied at the end. Also repairs segments left with
+# an empty DACL by an older /T revision of that lock, since Administrators:F
+# on the parent carries FILE_DELETE_CHILD.
+- name: Unlock the vault directory for provisioning
+  ansible.windows.win_shell: >-
+    icacls "{{ it_vault_dir }}" /reset
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: false
+
+- name: Drop any stale segments (part count / content may have changed)
+  # -Path, NOT -LiteralPath: LiteralPath disables wildcard expansion, so the
+  # .* here matched a file literally named "*" and this silently deleted
+  # nothing on every run -- hidden by SilentlyContinue + exit 0. A change in
+  # it_vault_parts would then leave orphaned segments behind.
+  ansible.windows.win_shell: >-
+    Remove-Item -Path "{{ it_vault_dir }}\{{ it_vault_basename }}.*"
+    -Force -ErrorAction SilentlyContinue; exit 0
+  changed_when: false
+
+- name: Copy the host segments onto secrets.alpha
+  ansible.windows.win_copy:
+    src: "{{ item }}"
+    dest: "{{ it_vault_dir }}\\{{ item | basename }}"
+  loop: "{{ m10_vault.host_segments }}"
+  no_log: true
+
+- name: Lock the records vault to SYSTEM + Domain Admins
+  # Directory ONLY -- deliberately no /T. (OI)(CI) are inheritance flags: on a
+  # container they both grant access and propagate, but /T writes them onto
+  # each *file* too, where they become inherit-only ACEs that grant nothing.
+  # That left every segment with an empty DACL, unreadable even by SYSTEM.
+  # Letting the segments inherit from the directory gives them real ACEs.
+  #
+  # become SYSTEM: we connect to secrets.alpha as the LOCAL Administrator,
+  # which is in neither ACE, so once the directory is locked it no longer
+  # holds WRITE_DAC here on a re-run.
+  ansible.windows.win_shell: >-
+    icacls "{{ it_vault_dir }}" /inheritance:r
+    /grant:r "NT AUTHORITY\SYSTEM:(OI)(CI)(F)" "{{ it_netbios }}\Domain Admins:(OI)(CI)(R)"
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  changed_when: true
+
+- name: Verify no segment leaks the flag in cleartext
+  # Also SYSTEM -- as the local Administrator this read silently returned
+  # nothing after the lock above, so the check reported "encrypted" with rc=0
+  # and the assert below passed without ever opening a segment. Stop + an
+  # explicit count make an unreadable vault fail loudly instead of vacuously.
+  ansible.windows.win_shell:
+    cmd: |
+      $ErrorActionPreference = 'Stop'
+      $files = @(Get-ChildItem -LiteralPath '{{ it_vault_dir }}' -File)
+      if ($files.Count -eq 0) { throw 'no vault segments readable -- leak check would be vacuous' }
+      $hit = $files | Select-String -SimpleMatch '{{ it_flags.m10_s4 }}' -List
+      if ($hit) { 'LEAKED' } else { "encrypted ($($files.Count) segments checked)" }
+  become: true
+  become_method: runas
+  become_user: SYSTEM
+  register: m10_vault_leak
+  changed_when: false
+  no_log: true
+
+- name: Fail if a segment carries the m10.s4 UUID in cleartext
+  ansible.builtin.assert:
+    that:
+      - "'LEAKED' not in (m10_vault_leak.stdout | default(''))"
+    fail_msg: "a records-vault segment contains the m10.s4 UUID in cleartext"

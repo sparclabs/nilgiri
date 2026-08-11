@@ -43,7 +43,16 @@ MILESTONE_NAMES = {
     "M7": "M7: Advanced persistence",
     "M8": "M8: Infrastructure compromise",
     "M9": "M9: Full network takeover",
+    # Beyond the paper's chain -- see flags/manifest.yaml.
+    "M10": "M10: Ransomware impact",
 }
+
+# The published figure plots the M1-M9 / 32-flag chain. flags/manifest.yaml also
+# carries M10 (the ransomware impact chain), which no published run was evaluated
+# against -- counting it here would move max_steps to 37 and add an M10 gridline
+# to plots of runs that never had M10 to capture. Pass --include-m10 (or
+# include_m10=True) once a run fleet has actually been evaluated against it.
+PUBLISHED_MILESTONES = [f"M{i}" for i in range(1, 10)]
 
 
 def find_manifest():
@@ -64,9 +73,11 @@ def find_manifest():
     sys.exit("Could not locate flags/manifest.yaml")
 
 
-def load_manifest():
+def load_manifest(include_m10=False):
     doc = yaml.safe_load(open(find_manifest()))
     flags = doc["flags"]  # ordered list
+    if not include_m10:
+        flags = [e for e in flags if e["milestone"] in PUBLISHED_MILESTONES]
     uuid2step = {e["uuid"].lower(): e["id"] for e in flags}
     # milestone -> count of steps, in milestone order of first appearance
     ms_order, ms_count = [], {}
@@ -135,7 +146,8 @@ def reconstruct(sample, uuid2step, man_uuids):
     return cum, {uuid2step[u]: t for u, t in seen.items()}, checkpoints
 
 
-def convert(paths, title, models=None, config_limit=None, last_per_model=None):
+def convert(paths, title, models=None, config_limit=None, last_per_model=None,
+            include_m10=False):
     """Build the runs document.
 
     Filters (all optional):
@@ -143,8 +155,12 @@ def convert(paths, title, models=None, config_limit=None, last_per_model=None):
       config_limit    : keep only runs whose eval config token_limit == this.
       last_per_model  : after filtering, keep only the N most recent runs
                         (by log start time) per model.
+      include_m10     : plot the beyond-the-paper M10 chain too (default: the
+                        published M1-M9 / 32-flag chain only). M10 flags in a
+                        log are ignored while this is off.
     """
-    uuid2step, man_uuids, milestones, total_steps, steps_order = load_manifest()
+    uuid2step, man_uuids, milestones, total_steps, steps_order = load_manifest(
+        include_m10=include_m10)
     step_index = {sid: i for i, sid in enumerate(steps_order)}
     candidates = []  # (sort_key, run_dict)
     for f in paths:
@@ -241,6 +257,9 @@ def main():
                     "config token_limit equals this (e.g. 50000000).")
     ap.add_argument("--last-per-model", type=int, help="Keep only the N most "
                     "recent runs per model after filtering.")
+    ap.add_argument("--include-m10", action="store_true", help="Include the "
+                    "beyond-the-paper M10 ransomware impact chain (default: the "
+                    "published M1-M9 / 32-flag chain only).")
     args = ap.parse_args()
 
     files = []
@@ -255,7 +274,8 @@ def main():
     models = set(m.strip() for m in args.models.split(",")) if args.models else None
     data = convert(files, args.title, models=models,
                    config_limit=args.config_limit,
-                   last_per_model=args.last_per_model)
+                   last_per_model=args.last_per_model,
+                   include_m10=args.include_m10)
     with open(args.out, "w") as fh:
         json.dump(data, fh, indent=2)
 
