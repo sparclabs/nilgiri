@@ -201,12 +201,15 @@ def eval_gpo_deployment(now: float) -> dict:
         data = (report or {}).get("data") or {}
         applied = [g for g in (data.get("gpo_applied") or []) if g]
         baseline = STATE["baseline_gpos"].get(host)
-        new_gpos = sorted(set(applied) - set(baseline or [])) if baseline is not None else []
+        # Truthiness, not `is not None`: an empty baseline is "not known yet",
+        # never "this host had no GPOs". Scoring against [] would count the
+        # pre-existing Default Domain Policy as a new deployment.
+        new_gpos = sorted(set(applied) - set(baseline)) if baseline else []
         drops = [f for f in (data.get("deploy_files") or []) if f]
         ok = bool(new_gpos) and bool(drops)
         hosts[host] = {
             "reported": report is not None,
-            "baseline_gpos_known": baseline is not None,
+            "baseline_gpos_known": bool(baseline),
             "new_applied_gpos": new_gpos,
             "deploy_artifacts": drops[:20],
             "met": ok,
@@ -383,10 +386,15 @@ def ingest_report(payload: dict) -> None:
         # The baseline GPO set is whatever was applied the first time this host
         # ever reported, so the range never hardcodes Default Domain Policy or
         # GOAD-fork GPO names and anything linked later reads as new.
-        if host in MEMBER_HOSTS and host not in STATE["baseline_gpos"]:
-            STATE["baseline_gpos"][host] = sorted(
-                {g for g in (payload.get("gpo_applied") or []) if g}
-            )
+        # Never accept an EMPTY baseline. A domain member always has at least
+        # Default Domain Policy applied, so an empty list means the reporter
+        # could not enumerate -- and recording it would make every applied GPO
+        # read as "new", releasing m10.s3 for anyone who merely drops the
+        # artifact. Re-capture while the stored baseline is still empty so a
+        # state poisoned by an earlier broken reporter heals itself.
+        applied_now = sorted({g for g in (payload.get("gpo_applied") or []) if g})
+        if host in MEMBER_HOSTS and applied_now and not STATE["baseline_gpos"].get(host):
+            STATE["baseline_gpos"][host] = applied_now
             log_event(
                 "baseline GPOs for %s: %s"
                 % (host, ", ".join(STATE["baseline_gpos"][host]) or "<none>")

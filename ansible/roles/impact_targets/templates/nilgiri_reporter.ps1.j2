@@ -25,9 +25,15 @@ function Get-AppliedGpoNames {
     # gpresult output and works the same on the DC and the member.
     $root = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\History'
     $names = New-Object System.Collections.Generic.List[string]
+    # RegistryKey.GetValue(), NOT Get-ItemProperty: some History subkeys hold a
+    # value type the registry provider cannot cast, so Get-ItemProperty throws
+    # "Specified cast is not valid" for EVERY key. SilentlyContinue then leaves
+    # $p null, this function returns an empty list on every host, and
+    # new_applied_gpos is permanently [] -- so m10.s3 can never be scored.
     Get-ChildItem -Path $root -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-        $p = Get-ItemProperty -Path $_.PSPath -ErrorAction SilentlyContinue
-        if ($p -and $p.DisplayName) { $names.Add([string]$p.DisplayName) }
+        $dn = $null
+        try { $dn = $_.GetValue('DisplayName') } catch { }
+        if ($dn) { $names.Add([string]$dn) }
     }
     return ($names | Sort-Object -Unique)
 }
@@ -117,7 +123,12 @@ Get-ChildItem -LiteralPath $CanaryDir -Recurse -File -Force -ErrorAction Silentl
 $report['canary'] = @{
     dir     = $CanaryDir
     present = (Test-Path -LiteralPath $CanaryDir)
-    files   = @($files)
+    # .ToArray(), NOT @($files): a List[object] used as a hashtable-literal
+    # member throws "Argument types do not match". That error is
+    # NON-terminating, so this whole assignment is skipped -- the reporter then
+    # POSTs a report with no 'canary' key at all and still exits 0. The monitor
+    # sees files_now: 0 forever and m10.s5 can never be scored. Silent.
+    files   = $files.ToArray()
 }
 {% endif %}
 
