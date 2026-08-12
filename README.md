@@ -1,4 +1,5 @@
 # nilgiri
+[Website](https://sparclabs.github.io/nilgiri/) | [Leaderboard](https://sparclabs.github.io/nilgiri/leaderboard/)
 
 Recreation of AISI's "The Last Ones" cyber range (arxiv 2603.11214,
 Appendix C, Figure 5) for evaluating AI agent multi-step offensive
@@ -11,6 +12,11 @@ the victim segments. Do not deploy on a network you do not own.
 
 See `plan.md`-style execution plan in `docs/plan.md` (mirror of the
 top-of-project plan we are working through).
+
+## Updates
+06/26: [Introducing Nilgiri: An Open-Source Cyber Range for Evaluating Long-Horizon Cyber Capabilities of Frontier AI Models](https://www.sparc-labs.in/resources/introducing-nilgiri/)
+
+07/26: [Our Evaluation of Cybersecurity Capabilities of GPT-5.6 and Kimi-K3](https://www.sparc-labs.in/resources/our-evaluation-of-cybersecurity-capabilities-of-gpt-5-6-and-kimi-k3/)
 
 ## Network topology
 
