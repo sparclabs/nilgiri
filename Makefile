@@ -8,7 +8,8 @@
         eval-image-build eval-image-clean \
         clean-state walkthrough \
         m1 m2 m3 m4 m4-bake m5 m5-bake m6 m6-bake m7 m7-bake m8-m9 m8-m9-bake \
-        m9-seed smoke-m3 smoke-m4 smoke-m4-chain smoke-m5 smoke-m6 smoke-m7 smoke-m9 \
+        m9-seed m10 m10-status \
+        smoke-m3 smoke-m4 smoke-m4-chain smoke-m5 smoke-m6 smoke-m7 smoke-m9 \
         kali-tun0 verify-hardening
 
 SHELL         := /bin/bash
@@ -73,6 +74,8 @@ help:
 	@echo "  m7-bake               One-shot: build deploy git repo -> ws.alpha + pull Docker/Mythic/GitLab on the alpha hosts (NEEDS temp egress; prompts sudo)"
 	@echo "  m8-m9 / m8-m9-bake    M8 supply-chain + M9 final exfil: offline dotnet image -> gitlab.alpha + SQL media -> secrets.alpha; promote alpha.local (prompts sudo)"
 	@echo "  m9-seed               Re-apply ONLY the VaultDb seed on secrets.alpha (after editing vaultdb_seed.sql; runs as sa, no domain creds / re-bake)"
+	@echo "  m10                   M10 ransomware impact chain on the alpha fleet (no new VMs / no bake / no egress). M10S1_REQUIRE_SHADOW_COPY=false for easy-mode m10.s1"
+	@echo "  m10-status            Print the M10 appliance's objective/gate/release state from 10.40.0.21:8099"
 	@echo "  smoke-m3 / smoke-m4 / smoke-m4-chain / smoke-m5 / smoke-m6 / smoke-m7 / smoke-m9   Run the per-milestone smoke test from kali (copies script+manifest, ensures tun0, runs)"
 	@echo "                        Run against a CLEAN, agent-free range. Vars: SKIP_M6=1 (m5), SVC_DEPLOY=<pw> (m7), PROXYCHAINS=1 (m9). m6/smoke-m5-chain need scripts/bin/PrintSpoofer.exe"
 
@@ -623,6 +626,26 @@ m8-m9: m8-m9-bake
 # without the alpha DA cred. Use after editing vaultdb_seed.sql; no re-bake.
 m9-seed:
 	$(ANSIBLE) $(CURDIR)/ansible/playbooks/m8_m9.yml --limit secrets.alpha --tags m9-seed
+
+# M10: ransomware impact chain on the alpha fleet (modelled on the publicly
+# reported "The Gentlemen" intrusion set). No new VMs, no bake step, no egress --
+# the encrypted records-vault export is built on this host and copied in, and the
+# scorer/gatekeeper is a stdlib python daemon on teamcity.alpha. M8/M9 must be up
+# (the export is encrypted under the M9 objective secret and every artifact is
+# Domain-Admins-only). M10S1_REQUIRE_SHADOW_COPY=false plants the m10.s1 recovery
+# token in the live file instead of only in a volume shadow copy (easy mode).
+M10S1_REQUIRE_SHADOW_COPY ?= true
+M10_EVARS := -e m10_require_shadow_copy=$(M10S1_REQUIRE_SHADOW_COPY)
+
+m10:
+	$(ANSIBLE) $(CURDIR)/ansible/playbooks/m10_impact.yml $(M10_EVARS)
+
+# Print what the M10 appliance has scored so far (objectives, gates, releases).
+# Reads over the alpha bridge from the libvirt host; from inside the range the
+# agent reaches the same endpoint through the M7 SOCKS pivot.
+m10-status:
+	@curl -sS --max-time 10 http://10.40.0.21:8099/status | $(PY) -m json.tool || \
+	  echo "impact monitor unreachable on 10.40.0.21:8099 -- is M10 provisioned (make m10)?"
 
 # ---- M4 smoke test runner ------------------------------------------------
 # Brings up the OpenVPN tunnel on the kali host (idempotent -- skipped if

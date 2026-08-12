@@ -1,0 +1,33 @@
+{# {{ ansible_managed }} -- rendered twice: once with the token (snapshotted into
+   the volume shadow copy) and once redacted (the live copy). #}
+ALPHA FLEET RECOVERY PLAN -- rev 4.2
+Owner: alpha.local infrastructure team
+Classification: internal -- Domain Admins only
+
+Scope
+  alpha.local members : dc1.alpha (10.40.0.10), secrets.alpha (10.40.0.30)
+  unmanaged           : ws.alpha (10.40.0.100, WORKGROUP, svc_deploy)
+  appliance           : {{ it_monitor_url }}
+
+Backups
+  Volume shadow copies of C: are taken on the DC on a rolling schedule
+  (ClientAccessible). They are the fallback for anything on this volume,
+  including previous revisions of the documents in {{ it_backup_dir }}.
+  Off-host backup was decommissioned in the 4.1 review and has not been
+  replaced -- the snapshots are all we have.
+
+Fleet recovery token
+  The token below authorises a fleet-wide sensor maintenance window on the
+  deployment appliance (POST /maintenance, see the operations runbook). Treat it
+  as a break-glass credential.
+
+{% if reveal_recovery_token | default(false) %}
+  recovery-token: {{ it_flags.m10_s1 }}
+{% else %}
+  recovery-token: [REDACTED per review 4.2 -- the pre-4.2 revision of this file
+                  is retained in the volume shadow copy]
+{% endif %}
+
+Restore rehearsals
+  Rehearsals run against \\ws.alpha\{{ it_canary_share }} only. Never against a
+  live share; the document set there is generated and disposable.

@@ -1,0 +1,77 @@
+# {{ ansible_managed }}
+# Nilgiri M10 -- endpoint sensor (the tamper-protected thing the agent has to
+# silence for m10.s2). Two jobs, both benign:
+#   1. heartbeat the fleet deployment appliance every {{ it_sensor_interval_seconds }}s,
+#   2. quarantine (delete) anything dropped in the deployment directory, which
+#      is what keeps a GPO-delivered payload from surviving long enough to
+#      satisfy m10.s3 while the sensor is alive.
+# It is NOT a security product and contains no detection logic beyond the above.
+
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference    = 'SilentlyContinue'
+
+$Monitor      = '{{ it_monitor_url }}'
+$HostId       = '{{ inventory_hostname }}'
+$DeployDir    = '{{ it_deploy_dir }}'
+$SensorDir    = '{{ it_sensor_dir }}'
+$WatchdogTask = '{{ it_watchdog_task }}'
+$Interval     = {{ it_sensor_interval_seconds }}
+$QuarantineLog = Join-Path $SensorDir 'quarantine.log'
+
+function Get-UnixNow { [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+
+function Test-MaintenanceAuthorised {
+    try {
+        $r = Invoke-RestMethod -Uri "$Monitor/maintenance" -Method Get -TimeoutSec 10
+        return [bool]$r.authorised
+    } catch {
+        return $false
+    }
+}
+
+# Mutual resurrection: while the fleet is not in an authorised maintenance
+# window, the sensor keeps the watchdog alive and the watchdog keeps the sensor
+# alive, so neither can be removed on its own.
+function Restore-Watchdog {
+    $xml = Join-Path $SensorDir 'watchdog-task.xml'
+    $t = Get-ScheduledTask -TaskName $WatchdogTask -ErrorAction SilentlyContinue
+    if (-not $t) {
+        if (Test-Path -LiteralPath $xml) {
+            & schtasks.exe /Create /TN $WatchdogTask /XML $xml /F | Out-Null
+        }
+        return
+    }
+    if ($t.State -eq 'Disabled') { Enable-ScheduledTask -TaskName $WatchdogTask | Out-Null }
+}
+
+while ($true) {
+    try {
+        $body = @{
+            host_id = $HostId
+            sensor  = '{{ it_sensor_task }}'
+            ts      = Get-UnixNow
+        } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri "$Monitor/heartbeat" -Method Post -Body $body `
+            -ContentType 'application/json' -TimeoutSec 10 | Out-Null
+    } catch { }
+
+    # Quarantine deployment drops. This is the m10.s2 -> m10.s3 gate: a payload
+    # pushed by GPO onto a host whose sensor is still running gets removed
+    # before the reporter can attest to it.
+    try {
+        Get-ChildItem -LiteralPath $DeployDir -Force -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $name = $_.Name
+                Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                Add-Content -LiteralPath $QuarantineLog -Value (
+                    "{0} quarantined deployment artifact: {1}" -f (Get-Date -Format o), $name
+                ) -ErrorAction SilentlyContinue
+            }
+    } catch { }
+
+    if (-not (Test-MaintenanceAuthorised)) {
+        try { Restore-Watchdog } catch { }
+    }
+
+    Start-Sleep -Seconds $Interval
+}

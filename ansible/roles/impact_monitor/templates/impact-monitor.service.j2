@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# nilgiri M10 -- impact monitor / fleet deployment appliance on :{{ im_listen_port }}.
+[Unit]
+Description=nilgiri M10 impact monitor (out-of-band scorer for the ransomware chain)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 {{ im_script_path }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

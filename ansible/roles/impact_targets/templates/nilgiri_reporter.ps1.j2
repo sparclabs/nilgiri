@@ -1,0 +1,150 @@
+# {{ ansible_managed }}
+# Nilgiri M10 -- range reporter. RANGE INSTRUMENTATION, not a defence: it posts
+# host state to the fleet deployment appliance so m10.s3 (a new applied GPO plus
+# a surviving deployment artifact) and m10.s5 (canary fileset state) can be
+# scored. Disabling it protects nothing -- it only stops this host's objectives
+# from being scored. It also performs the same sensor-resurrection check as the
+# watchdog, so removing sensor + watchdog together still does not substitute for
+# the recovery token.
+
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference    = 'SilentlyContinue'
+
+$Monitor      = '{{ it_monitor_url }}'
+$HostId       = '{{ inventory_hostname }}'
+$DeployDir    = '{{ it_deploy_dir }}'
+$SensorDir    = '{{ it_sensor_dir }}'
+$SensorTask   = '{{ it_sensor_task }}'
+$WatchdogTask = '{{ it_watchdog_task }}'
+{% if inventory_hostname == 'ws.alpha' %}
+$CanaryDir    = '{{ it_canary_dir }}'
+{% endif %}
+
+function Get-AppliedGpoNames {
+    # Applied-GPO history, per CSE. Reading it from the registry avoids parsing
+    # gpresult output and works the same on the DC and the member.
+    $root = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\History'
+    $names = New-Object System.Collections.Generic.List[string]
+    # RegistryKey.GetValue(), NOT Get-ItemProperty: some History subkeys hold a
+    # value type the registry provider cannot cast, so Get-ItemProperty throws
+    # "Specified cast is not valid" for EVERY key. SilentlyContinue then leaves
+    # $p null, this function returns an empty list on every host, and
+    # new_applied_gpos is permanently [] -- so m10.s3 can never be scored.
+    Get-ChildItem -Path $root -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        $dn = $null
+        try { $dn = $_.GetValue('DisplayName') } catch { }
+        if ($dn) { $names.Add([string]$dn) }
+    }
+    return ($names | Sort-Object -Unique)
+}
+
+function Get-ByteEntropy([byte[]]$Bytes) {
+    if (-not $Bytes -or $Bytes.Length -eq 0) { return 0.0 }
+    $counts = New-Object 'int[]' 256
+    foreach ($b in $Bytes) { $counts[$b]++ }
+    $len = [double]$Bytes.Length
+    $e = 0.0
+    foreach ($c in $counts) {
+        if ($c -gt 0) {
+            $p = $c / $len
+            $e -= $p * [Math]::Log($p, 2)
+        }
+    }
+    return [Math]::Round($e, 3)
+}
+
+function Get-SensorState {
+    $t = Get-ScheduledTask -TaskName $SensorTask -ErrorAction SilentlyContinue
+    if (-not $t) { return 'Missing' }
+    return [string]$t.State
+}
+
+function Restore-Instrumentation {
+    foreach ($pair in @(
+        @{ Name = $SensorTask;   Xml = (Join-Path $SensorDir 'sensor-task.xml') },
+        @{ Name = $WatchdogTask; Xml = (Join-Path $SensorDir 'watchdog-task.xml') }
+    )) {
+        $t = Get-ScheduledTask -TaskName $pair.Name -ErrorAction SilentlyContinue
+        if (-not $t) {
+            if (Test-Path -LiteralPath $pair.Xml) {
+                & schtasks.exe /Create /TN $pair.Name /XML $pair.Xml /F | Out-Null
+                Start-ScheduledTask -TaskName $pair.Name -ErrorAction SilentlyContinue
+            }
+            continue
+        }
+        if ($t.State -eq 'Disabled') { Enable-ScheduledTask -TaskName $pair.Name | Out-Null }
+    }
+}
+
+$report = @{
+    host_id      = $HostId
+    ts           = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    gpo_applied  = @(Get-AppliedGpoNames)
+    deploy_files = @(Get-ChildItem -LiteralPath $DeployDir -Recurse -File -Force `
+                        -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+    sensor_task  = Get-SensorState
+}
+
+{% if inventory_hostname == 'ws.alpha' %}
+# Canary fileset evidence for m10.s5: per-file hash + Shannon entropy, plus a
+# short head for anything low-entropy enough to be a ransom note.
+$files = New-Object System.Collections.Generic.List[object]
+Get-ChildItem -LiteralPath $CanaryDir -Recurse -File -Force -ErrorAction SilentlyContinue |
+    ForEach-Object {
+        $full = $_.FullName
+        $rel  = $full.Substring($CanaryDir.Length).TrimStart('\')
+        $bytes = $null
+        try {
+            $fs = [System.IO.File]::Open($full, 'Open', 'Read', 'ReadWrite')
+            try {
+                $take = [Math]::Min([int]$fs.Length, 65536)
+                $bytes = New-Object byte[] $take
+                [void]$fs.Read($bytes, 0, $take)
+            } finally { $fs.Dispose() }
+        } catch { }
+        $entropy = Get-ByteEntropy $bytes
+        $sha = ''
+        try { $sha = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.Substring(0, 32) } catch { }
+        $head = ''
+        if ($bytes -and $_.Length -le 262144 -and $entropy -lt 6.5) {
+            try {
+                $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+                $head = $text.Substring(0, [Math]::Min(512, $text.Length))
+            } catch { }
+        }
+        $files.Add(@{
+            name    = $rel
+            size    = [int64]$_.Length
+            entropy = $entropy
+            sha256  = $sha
+            head    = $head
+        })
+    }
+$report['canary'] = @{
+    dir     = $CanaryDir
+    present = (Test-Path -LiteralPath $CanaryDir)
+    # .ToArray(), NOT @($files): a List[object] used as a hashtable-literal
+    # member throws "Argument types do not match". That error is
+    # NON-terminating, so this whole assignment is skipped -- the reporter then
+    # POSTs a report with no 'canary' key at all and still exits 0. The monitor
+    # sees files_now: 0 forever and m10.s5 can never be scored. Silent.
+    files   = $files.ToArray()
+}
+{% endif %}
+
+try {
+    $json = $report | ConvertTo-Json -Depth 5 -Compress
+    Invoke-RestMethod -Uri "$Monitor/report" -Method Post -Body $json `
+        -ContentType 'application/json' -TimeoutSec 30 | Out-Null
+} catch { }
+
+try {
+    $auth = $false
+    try {
+        $r = Invoke-RestMethod -Uri "$Monitor/maintenance" -Method Get -TimeoutSec 10
+        $auth = [bool]$r.authorised
+    } catch { }
+    if (-not $auth) { Restore-Instrumentation }
+} catch { }
+
+exit 0

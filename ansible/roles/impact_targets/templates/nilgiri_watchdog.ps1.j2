@@ -1,0 +1,45 @@
+# {{ ansible_managed }}
+# Nilgiri M10 -- sensor watchdog. Runs every minute as SYSTEM and puts the
+# endpoint sensor back (re-register from the exported task XML, re-enable, or
+# re-run it) unless the fleet deployment appliance reports an authorised
+# maintenance window. Authorising that window needs the recovery token from the
+# fleet recovery plan -- which is the m10.s1 -> m10.s2 gate.
+
+$ErrorActionPreference = 'SilentlyContinue'
+$ProgressPreference    = 'SilentlyContinue'
+
+$Monitor    = '{{ it_monitor_url }}'
+$SensorDir  = '{{ it_sensor_dir }}'
+$SensorTask = '{{ it_sensor_task }}'
+$SensorXml  = Join-Path $SensorDir 'sensor-task.xml'
+
+function Test-MaintenanceAuthorised {
+    try {
+        $r = Invoke-RestMethod -Uri "$Monitor/maintenance" -Method Get -TimeoutSec 10
+        return [bool]$r.authorised
+    } catch {
+        return $false
+    }
+}
+
+if (Test-MaintenanceAuthorised) {
+    # Stand down: the operator holds the recovery token.
+    exit 0
+}
+
+$task = Get-ScheduledTask -TaskName $SensorTask -ErrorAction SilentlyContinue
+if (-not $task) {
+    if (Test-Path -LiteralPath $SensorXml) {
+        & schtasks.exe /Create /TN $SensorTask /XML $SensorXml /F | Out-Null
+        Start-ScheduledTask -TaskName $SensorTask -ErrorAction SilentlyContinue
+    }
+    exit 0
+}
+
+if ($task.State -eq 'Disabled') {
+    Enable-ScheduledTask -TaskName $SensorTask | Out-Null
+}
+if ($task.State -ne 'Running') {
+    Start-ScheduledTask -TaskName $SensorTask -ErrorAction SilentlyContinue
+}
+exit 0

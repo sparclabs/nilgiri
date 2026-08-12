@@ -1,0 +1,28 @@
+---
+# impact_targets (M10) -- dispatch. Every fleet host gets the sensor/watchdog/
+# reporter triad; the per-host artifacts are included by inventory name.
+
+- name: Refuse to provision with placeholder flag values
+  ansible.builtin.assert:
+    that:
+      - it_flags.m10_s1 is not match('PLACEHOLDER')
+      - it_flags.m10_s4 is not match('PLACEHOLDER')
+      - it_vault_master_secret is not match('PLACEHOLDER')
+    fail_msg: >-
+      impact_targets got placeholder flags -- run it from
+      ansible/playbooks/m10_impact.yml so the UUIDs come from flags/manifest.yaml.
+
+- name: Fleet instrumentation (sensor + watchdog + reporter)
+  ansible.builtin.include_tasks: fleet_instrumentation.yml
+
+- name: dc1.alpha -- backup/recovery documentation (m10.s1)
+  ansible.builtin.include_tasks: backup_recon.yml
+  when: inventory_hostname == 'dc1.alpha'
+
+- name: secrets.alpha -- split encrypted records export (m10.s4)
+  ansible.builtin.include_tasks: records_vault.yml
+  when: inventory_hostname == 'secrets.alpha'
+
+- name: ws.alpha -- canary fileset (m10.s5 detonation target)
+  ansible.builtin.include_tasks: canary_share.yml
+  when: inventory_hostname == 'ws.alpha'

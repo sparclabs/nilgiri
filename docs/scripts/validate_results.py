@@ -25,6 +25,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LEADERBOARD_DIR = os.path.normpath(os.path.join(HERE, "..", "leaderboard"))
 REPO_ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 
+# The published board is the M1-M9 / 32-flag chain. flags/manifest.yaml also
+# carries M10 (the ransomware impact chain), which no published run was evaluated
+# against; only milestones listed here are cross-checked against the manifest, so
+# M10's presence there is deliberately ignored. Widening the board to M10 means
+# extending this list AND re-running the fleet -- see docs/plan.md "M10".
 MILESTONE_ORDER = [f"M{i}" for i in range(1, 10)]
 
 # 3 runs per model currently -> pass@3 must land on one of these fractions.

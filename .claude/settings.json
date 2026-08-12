@@ -8,7 +8,10 @@
       "Bash(.venv/bin/ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/baseline.yml --limit ws.alpha)",
       "Bash(.venv/bin/ansible -i ansible/inventory/hosts.yml gitlab.alpha -b -m shell -a \"docker exec gitlab gitlab-rails runner /tmp/mkadmin.rb 2>&1 | head -20\")",
       "Bash(nc -z -w 3 10.20.0.100 5985)",
-      "Bash(virsh domstate *)"
+      "Bash(virsh domstate *)",
+      "Bash(sudo -n dmesg -T)",
+      "Bash(journalctl --since \"2026-08-05 16:30\" --no-pager)",
+      "Bash(echo \"\\(journalctl rc=$?\\)\")"
     ]
   }
 }
