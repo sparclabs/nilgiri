@@ -71,6 +71,7 @@ MODEL_META = {
     "claude-opus-4.7": ("claude-opus-4-7", "Claude Opus 4.7", "Anthropic"),
     "claude-opus-4.6": ("claude-opus-4-6", "Claude Opus 4.6", "Anthropic"),
     "claude-fable-5":  ("claude-fable-5", "Claude Fable 5",  "Anthropic"),
+    "glm-5.3":         ("glm-5.3",        "GLM-5.3",         "Zhipu AI"),
     "glm-5.2":         ("glm-5.2",        "GLM-5.2",         "Zhipu AI"),
     "deepseek-v4-pro": ("deepseek-v4-pro", "DeepSeek V4 Pro", "DeepSeek"),
     "kimi-k3":         ("kimi-k3",        "Kimi K3",         "Moonshot AI"),
